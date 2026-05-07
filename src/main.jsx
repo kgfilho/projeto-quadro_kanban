@@ -429,6 +429,7 @@ function App() {
     setRealtimeStatus('connecting');
 
     eventSource.addEventListener('connected', () => {
+      setApiStatus('online');
       setRealtimeStatus('online');
     });
 
@@ -476,7 +477,9 @@ function App() {
           setAuthStatus('unauthenticated');
           setUser(null);
         }
-        setApiStatus('offline');
+        if (!error.status) {
+          setApiStatus('offline');
+        }
         showToast('Nao foi possivel sincronizar com a API.', 'warning');
       }
     }, 450);
