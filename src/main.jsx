@@ -33,6 +33,7 @@ import {
   getCurrentUser,
   getProjectBoard,
   inviteWorkspaceMember,
+  listProjectActivity,
   listProjects,
   listWorkspaceMembers,
   listWorkspaces,
@@ -193,6 +194,7 @@ function App() {
   const [members, setMembers] = React.useState([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState('');
   const [selectedProjectId, setSelectedProjectId] = React.useState('');
+  const [activities, setActivities] = React.useState([]);
   const [teamModalOpen, setTeamModalOpen] = React.useState(false);
   const [activeTask, setActiveTask] = React.useState(null);
   const fileInputRef = React.useRef(null);
@@ -208,6 +210,16 @@ function App() {
     }, 3200);
   }, []);
 
+  const loadProjectActivity = React.useCallback(async (projectId) => {
+    if (!projectId) {
+      setActivities([]);
+      return [];
+    }
+    const activityItems = await listProjectActivity(projectId);
+    setActivities(activityItems);
+    return activityItems;
+  }, []);
+
   const loadProjectBoard = React.useCallback(async (projectId) => {
     hydratedRef.current = false;
     const remoteState = await getProjectBoard(projectId);
@@ -217,7 +229,8 @@ function App() {
     setSelectedProjectId(projectId);
     setApiStatus('online');
     hydratedRef.current = true;
-  }, []);
+    await loadProjectActivity(projectId);
+  }, [loadProjectActivity]);
 
   const applyRemoteBoard = React.useCallback(async (projectId, updatedBy) => {
     applyingRemoteRef.current = true;
@@ -234,7 +247,8 @@ function App() {
     if (updatedBy?.name) {
       showToast(`Quadro atualizado por ${updatedBy.name}.`);
     }
-  }, [showToast]);
+    await loadProjectActivity(projectId);
+  }, [loadProjectActivity, showToast]);
 
   const loadMembers = React.useCallback(async (workspaceId) => {
     if (!workspaceId) {
@@ -256,6 +270,7 @@ function App() {
     if (!workspaceId) {
       setProjects([]);
       setMembers([]);
+      setActivities([]);
       setSelectedProjectId('');
       setAreas(defaultAreas);
       setBoard(normalizeBoard(emptyBoard, defaultAreas));
@@ -271,6 +286,7 @@ function App() {
 
     if (!projectId) {
       setSelectedProjectId('');
+      setActivities([]);
       setAreas(defaultAreas);
       setBoard(normalizeBoard(emptyBoard, defaultAreas));
       hydratedRef.current = true;
@@ -338,6 +354,15 @@ function App() {
         setRealtimeStatus('offline');
         showToast('Nao foi possivel aplicar atualizacao em tempo real.', 'warning');
       });
+    });
+
+    eventSource.addEventListener('activity-created', (event) => {
+      const payload = JSON.parse(event.data);
+      if (!payload.activity) return;
+      setActivities((currentActivities) => [
+        payload.activity,
+        ...currentActivities.filter((activity) => activity.id !== payload.activity.id),
+      ].slice(0, 50));
     });
 
     eventSource.onerror = () => {
@@ -628,10 +653,11 @@ function App() {
     } finally {
         setUser(null);
         setAuthStatus('unauthenticated');
-        setWorkspaces([]);
-        setProjects([]);
-        setMembers([]);
-        setSelectedWorkspaceId('');
+      setWorkspaces([]);
+      setProjects([]);
+      setMembers([]);
+      setActivities([]);
+      setSelectedWorkspaceId('');
       setSelectedProjectId('');
       setAreas(defaultAreas);
       setBoard(normalizeBoard(emptyBoard, defaultAreas));
@@ -642,6 +668,7 @@ function App() {
   async function handleWorkspaceChange(workspaceId) {
     setSelectedWorkspaceId(workspaceId);
     setSelectedProjectId('');
+    setActivities([]);
     await loadMembers(workspaceId);
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
@@ -825,6 +852,9 @@ function App() {
           <button type="button" className={activeView === 'calendar' ? 'active' : ''} onClick={() => setActiveView('calendar')}>
             Calendario
           </button>
+          <button type="button" className={activeView === 'activity' ? 'active' : ''} onClick={() => setActiveView('activity')}>
+            Atividade
+          </button>
         </div>
         <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
           <SquareKanban size={18} />
@@ -857,8 +887,10 @@ function App() {
           </section>
           <DragOverlay>{activeTask ? <TaskCardView task={activeTask} isOverlay /> : null}</DragOverlay>
         </DndContext>
-      ) : (
+      ) : activeView === 'calendar' ? (
         <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => (canEditBoard ? setModalTask(task) : null)} />
+      ) : (
+        <ActivityView activities={activities} />
       )}
 
       {modalTask ? <TaskModal task={modalTask} areas={areas} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
@@ -1579,6 +1611,46 @@ function CalendarView({ tasks, areas, onEditTask }) {
       )}
     </section>
   );
+}
+
+function ActivityView({ activities }) {
+  return (
+    <section className="activity-view" aria-label="Atividade do projeto">
+      {activities.length === 0 ? (
+        <div className="calendar-empty">
+          <ClipboardList size={28} />
+          <p>Nenhuma atividade registrada.</p>
+        </div>
+      ) : (
+        activities.map((activity) => (
+          <article key={activity.id} className="activity-item">
+            <span className="activity-marker" />
+            <div>
+              <header>
+                <strong>{activity.description}</strong>
+                <time dateTime={activity.createdAt}>{formatActivityDate(activity.createdAt)}</time>
+              </header>
+              <p>{activity.user?.name || 'Sistema'} - {activity.action}</p>
+              {activity.metadata?.taskCount !== undefined ? (
+                <small>{activity.metadata.taskCount} tarefas em {activity.metadata.areaCount} areas</small>
+              ) : null}
+            </div>
+          </article>
+        ))
+      )}
+    </section>
+  );
+}
+
+function formatActivityDate(value) {
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }
 
 function ToastList({ toasts, onDismiss }) {

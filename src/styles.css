@@ -1199,6 +1199,55 @@ select:focus,
   grid-column: 1 / -1;
 }
 
+.activity-view {
+  display: grid;
+  gap: 10px;
+  max-width: 920px;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 24px var(--shadow-soft);
+}
+
+.activity-marker {
+  width: 10px;
+  height: 10px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.activity-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.activity-item p,
+.activity-item small,
+.activity-item time {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.activity-item p {
+  margin-top: 4px;
+}
+
+.activity-item small {
+  display: block;
+  margin-top: 8px;
+  font-weight: 800;
+}
+
 @media (max-width: 1100px) {
   .top-panel {
     align-items: stretch;

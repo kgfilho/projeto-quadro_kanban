@@ -96,6 +96,10 @@ export function getProjectBoard(projectId) {
   return request(`/api/projects/${projectId}/board`);
 }
 
+export function listProjectActivity(projectId) {
+  return request(`/api/projects/${projectId}/activity`).then((data) => data.activities || []);
+}
+
 export function saveProjectBoard(projectId, state) {
   return request(`/api/projects/${projectId}/board`, {
     method: 'PUT',
