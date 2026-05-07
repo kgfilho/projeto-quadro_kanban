@@ -409,6 +409,43 @@ select:focus,
   cursor: pointer;
 }
 
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--text-primary);
+  color: var(--bg-panel);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+
+.avatar-md {
+  width: 38px;
+  height: 38px;
+  font-size: 13px;
+}
+
+.avatar-lg {
+  width: 54px;
+  height: 54px;
+  font-size: 18px;
+}
+
 .workspace-bar {
   display: flex;
   align-items: center;
@@ -1184,6 +1221,11 @@ select:focus,
   width: min(680px, 100%);
 }
 
+.account-modal header {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+}
+
 .account-modal header span {
   display: block;
   margin-top: 4px;
@@ -1319,18 +1361,6 @@ select:focus,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.member-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: var(--text-primary);
-  color: var(--bg-panel);
-  font-weight: 900;
 }
 
 .role-pill {

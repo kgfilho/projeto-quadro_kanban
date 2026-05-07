@@ -184,6 +184,21 @@ function checklistProgress(checklist = []) {
   return { done, total: checklist.length, percent: Math.round((done / checklist.length) * 100) };
 }
 
+function getInitials(name = '') {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase();
+}
+
+function Avatar({ user, size = 'md' }) {
+  const name = user?.name || user?.email || 'Usuario';
+  return (
+    <span className={`avatar avatar-${size}`} aria-hidden="true">
+      {user?.avatarUrl ? <img src={user.avatarUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : getInitials(name)}
+    </span>
+  );
+}
+
 function App() {
   const [areas, setAreas] = React.useState(defaultAreas);
   const [board, setBoard] = React.useState(() => normalizeBoard(emptyBoard, defaultAreas));
@@ -898,7 +913,7 @@ function App() {
             {realtimeStatus === 'online' ? 'Tempo real' : realtimeStatus === 'offline' ? 'Sem tempo real' : realtimeStatus === 'connecting' ? 'Conectando realtime' : 'Realtime ocioso'}
           </span>
           <button type="button" className="user-chip" onClick={() => setAccountModalOpen(true)} aria-label="Abrir minha conta">
-            <User size={16} />
+            <Avatar user={user} size="sm" />
             {user?.name || user?.email}
           </button>
           <button type="button" className="icon-button" onClick={() => saveUserTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
@@ -1793,7 +1808,7 @@ function TeamModal({
             const canEditMember = canManage && member.role !== 'owner' && !isSelf;
             return (
               <article key={member.user.id} className="member-row">
-                <span className="member-avatar">{member.user.name.slice(0, 1).toUpperCase()}</span>
+                <Avatar user={member.user} />
                 <div>
                   <strong>{member.user.name}</strong>
                   <small>{member.user.email}</small>
@@ -1914,7 +1929,7 @@ function SettingsView({
             const canEditMember = canManageTeam && member.role !== 'owner' && !isSelf;
             return (
               <article key={member.user.id} className="member-row">
-                <span className="member-avatar">{member.user.name.slice(0, 1).toUpperCase()}</span>
+                <Avatar user={member.user} />
                 <div>
                   <strong>{member.user.name}</strong>
                   <small>{member.user.email}</small>
@@ -1946,22 +1961,25 @@ function SettingsView({
 
 function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword, onUpdateTheme, onLogout }) {
   const [profileName, setProfileName] = React.useState(user?.name || '');
+  const [avatarUrl, setAvatarUrl] = React.useState(user?.avatarUrl || '');
   const [passwordForm, setPasswordForm] = React.useState({ currentPassword: '', newPassword: '' });
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     setProfileName(user?.name || '');
-  }, [user?.name]);
+    setAvatarUrl(user?.avatarUrl || '');
+  }, [user?.name, user?.avatarUrl]);
 
   async function saveProfile(event) {
     event.preventDefault();
     const name = profileName.trim();
-    if (!name || name === user?.name) return;
+    const cleanAvatarUrl = avatarUrl.trim();
+    if (!name || (name === user?.name && cleanAvatarUrl === (user?.avatarUrl || ''))) return;
     setError('');
     setIsSubmitting(true);
     try {
-      await onUpdateProfile({ name });
+      await onUpdateProfile({ name, avatarUrl: cleanAvatarUrl });
     } catch (submitError) {
       setError(submitError.message || 'Nao foi possivel atualizar o perfil.');
     } finally {
@@ -1992,6 +2010,7 @@ function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword,
             <h2 id="account-title">{user?.name || 'Usuario'}</h2>
             <span>{user?.email}</span>
           </div>
+          <Avatar user={user} size="lg" />
           <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
             <X size={18} />
           </button>
@@ -2004,7 +2023,11 @@ function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword,
             Nome
             <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
           </label>
-          <button type="submit" className="secondary-button" disabled={isSubmitting || !profileName.trim() || profileName.trim() === user?.name}>
+          <label>
+            Avatar URL
+            <input type="url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://..." />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isSubmitting || !profileName.trim() || (profileName.trim() === user?.name && avatarUrl.trim() === (user?.avatarUrl || ''))}>
             <CheckCircle2 size={17} />
             Salvar perfil
           </button>
@@ -2156,7 +2179,7 @@ function ActivityView({ activities }) {
       ) : (
         activities.map((activity) => (
           <article key={activity.id} className="activity-item">
-            <span className="activity-marker" />
+            {activity.user ? <Avatar user={activity.user} size="sm" /> : <span className="activity-marker" />}
             <div>
               <header>
                 <strong>{activity.description}</strong>
