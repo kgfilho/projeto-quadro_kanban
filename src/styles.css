@@ -325,10 +325,10 @@ select:focus,
 
 .project-strip {
   display: grid;
-  grid-template-columns: minmax(420px, 560px) auto;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 18px;
   margin: 0 calc(var(--page-x) * -1) 18px;
   padding: 12px var(--page-x);
   border: 1px solid var(--border-color);
@@ -349,13 +349,14 @@ select:focus,
 
 .context-selectors {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(320px, 1fr) minmax(280px, 440px);
   gap: 10px;
+  min-width: 0;
 }
 
 .context-selectors label {
   display: grid;
-  grid-template-columns: 96px minmax(260px, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   min-width: 0;
