@@ -2,10 +2,11 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3333';
 
 async function request(path, options = {}) {
   const hasBody = typeof options.body !== 'undefined';
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
     credentials: 'include',
     headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
     ...options,
@@ -20,6 +21,12 @@ async function request(path, options = {}) {
   }
 
   return data;
+}
+
+export function getAssetUrl(path) {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 export function getCurrentUser() {
@@ -50,6 +57,21 @@ export function updateCurrentUserProfile(payload) {
   return request('/api/auth/me/profile', {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  }).then((data) => data.user);
+}
+
+export function uploadCurrentUserAvatar(file) {
+  const formData = new FormData();
+  formData.append('avatar', file);
+  return request('/api/auth/me/avatar', {
+    method: 'POST',
+    body: formData,
+  }).then((data) => data.user);
+}
+
+export function deleteCurrentUserAvatar() {
+  return request('/api/auth/me/avatar', {
+    method: 'DELETE',
   }).then((data) => data.user);
 }
 

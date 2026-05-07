@@ -13,6 +13,7 @@ import {
   ClipboardList,
   Edit3,
   FolderKanban,
+  ImagePlus,
   LogOut,
   Moon,
   Plus,
@@ -31,8 +32,10 @@ import {
   createProject,
   createWorkspaceInvite,
   createWorkspace,
+  deleteCurrentUserAvatar,
   deleteProject,
   deleteWorkspace,
+  getAssetUrl,
   getInvite,
   getCurrentUser,
   getProjectBoard,
@@ -52,6 +55,7 @@ import {
   updateCurrentUserPassword,
   updateCurrentUserPreferences,
   updateCurrentUserProfile,
+  uploadCurrentUserAvatar,
   updateProject,
   updateWorkspaceMember,
   updateWorkspace,
@@ -192,11 +196,53 @@ function getInitials(name = '') {
 
 function Avatar({ user, size = 'md' }) {
   const name = user?.name || user?.email || 'Usuario';
+  const avatarSrc = getAssetUrl(user?.avatarUrl);
   return (
     <span className={`avatar avatar-${size}`} aria-hidden="true">
-      {user?.avatarUrl ? <img src={user.avatarUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : getInitials(name)}
+      {avatarSrc ? <img src={avatarSrc} alt="" loading="lazy" referrerPolicy="no-referrer" /> : getInitials(name)}
     </span>
   );
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Nao foi possivel ler a imagem.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Nao foi possivel carregar a imagem.'));
+    image.src = src;
+  });
+}
+
+async function createCroppedAvatarFile({ src, zoom, offsetX, offsetY }) {
+  const image = await loadImage(src);
+  const size = 320;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, size, size);
+
+  const baseScale = Math.max(size / image.width, size / image.height);
+  const scale = baseScale * zoom;
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+  context.drawImage(image, (size - drawWidth) / 2 + offsetX, (size - drawHeight) / 2 + offsetY, drawWidth, drawHeight);
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('Nao foi possivel cortar a imagem.'))), 'image/jpeg', 0.9);
+  });
+
+  return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
 }
 
 function App() {
@@ -801,6 +847,18 @@ function App() {
     showToast('Perfil atualizado.');
   }
 
+  async function uploadUserAvatar(file) {
+    const updatedUser = await uploadCurrentUserAvatar(file);
+    setUser(updatedUser);
+    showToast('Avatar atualizado.');
+  }
+
+  async function removeUserAvatar() {
+    const updatedUser = await deleteCurrentUserAvatar();
+    setUser(updatedUser);
+    showToast('Avatar removido.', 'warning');
+  }
+
   async function updateUserPassword(payload) {
     await updateCurrentUserPassword(payload);
     showToast('Senha atualizada.');
@@ -1136,6 +1194,8 @@ function App() {
           theme={theme}
           onClose={() => setAccountModalOpen(false)}
           onUpdateProfile={updateUserProfile}
+          onUploadAvatar={uploadUserAvatar}
+          onRemoveAvatar={removeUserAvatar}
           onUpdatePassword={updateUserPassword}
           onUpdateTheme={saveUserTheme}
           readOnly={connectionReadOnly}
@@ -1997,29 +2057,88 @@ function SettingsView({
   );
 }
 
-function AccountModal({ user, theme, readOnly, onClose, onUpdateProfile, onUpdatePassword, onUpdateTheme, onLogout }) {
+function AccountModal({ user, theme, readOnly, onClose, onUpdateProfile, onUploadAvatar, onRemoveAvatar, onUpdatePassword, onUpdateTheme, onLogout }) {
   const [profileName, setProfileName] = React.useState(user?.name || '');
-  const [avatarUrl, setAvatarUrl] = React.useState(user?.avatarUrl || '');
+  const [avatarDraft, setAvatarDraft] = React.useState(null);
+  const [avatarZoom, setAvatarZoom] = React.useState(1);
+  const [avatarOffsetX, setAvatarOffsetX] = React.useState(0);
+  const [avatarOffsetY, setAvatarOffsetY] = React.useState(0);
   const [passwordForm, setPasswordForm] = React.useState({ currentPassword: '', newPassword: '' });
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const fileInputRef = React.useRef(null);
 
   React.useEffect(() => {
     setProfileName(user?.name || '');
-    setAvatarUrl(user?.avatarUrl || '');
-  }, [user?.name, user?.avatarUrl]);
+  }, [user?.name]);
 
   async function saveProfile(event) {
     event.preventDefault();
     const name = profileName.trim();
-    const cleanAvatarUrl = avatarUrl.trim();
-    if (!name || (name === user?.name && cleanAvatarUrl === (user?.avatarUrl || ''))) return;
+    if (!name || name === user?.name) return;
     setError('');
     setIsSubmitting(true);
     try {
-      await onUpdateProfile({ name, avatarUrl: cleanAvatarUrl });
+      await onUpdateProfile({ name });
     } catch (submitError) {
       setError(submitError.message || 'Nao foi possivel atualizar o perfil.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function selectAvatar(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Avatar precisa ser JPG, PNG ou WEBP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Escolha uma imagem de ate 5MB.');
+      return;
+    }
+
+    setError('');
+    try {
+      setAvatarDraft(await readFileAsDataUrl(file));
+      setAvatarZoom(1);
+      setAvatarOffsetX(0);
+      setAvatarOffsetY(0);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel carregar a imagem.');
+    }
+  }
+
+  async function saveAvatar() {
+    if (!avatarDraft) return;
+    setError('');
+    setIsSubmitting(true);
+    try {
+      const avatarFile = await createCroppedAvatarFile({
+        src: avatarDraft,
+        zoom: Number(avatarZoom),
+        offsetX: Number(avatarOffsetX),
+        offsetY: Number(avatarOffsetY),
+      });
+      await onUploadAvatar(avatarFile);
+      setAvatarDraft(null);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel salvar o avatar.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function removeAvatar() {
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onRemoveAvatar();
+      setAvatarDraft(null);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel remover o avatar.');
     } finally {
       setIsSubmitting(false);
     }
@@ -2062,15 +2181,69 @@ function AccountModal({ user, theme, readOnly, onClose, onUpdateProfile, onUpdat
             Nome
             <input value={profileName} onChange={(event) => setProfileName(event.target.value)} disabled={readOnly} />
           </label>
-          <label>
-            Avatar URL
-            <input type="url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://..." disabled={readOnly} />
-          </label>
-          <button type="submit" className="secondary-button" disabled={readOnly || isSubmitting || !profileName.trim() || (profileName.trim() === user?.name && avatarUrl.trim() === (user?.avatarUrl || ''))}>
+          <button type="submit" className="secondary-button" disabled={readOnly || isSubmitting || !profileName.trim() || profileName.trim() === user?.name}>
             <CheckCircle2 size={17} />
             Salvar perfil
           </button>
         </form>
+
+        <section className="avatar-panel" aria-label="Avatar do usuario">
+          <div className="avatar-current">
+            <Avatar user={user} size="lg" />
+            <div>
+              <strong>Foto do perfil</strong>
+              <span>Envie uma imagem e ajuste o corte antes de salvar.</span>
+            </div>
+          </div>
+          <div className="avatar-actions">
+            <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={selectAvatar} disabled={readOnly} hidden />
+            <button type="button" className="secondary-button" onClick={() => fileInputRef.current?.click()} disabled={readOnly || isSubmitting}>
+              <ImagePlus size={17} />
+              Enviar imagem
+            </button>
+            <button type="button" className="secondary-button danger-outline" onClick={removeAvatar} disabled={readOnly || isSubmitting || !user?.avatarUrl}>
+              <Trash2 size={17} />
+              Remover
+            </button>
+          </div>
+
+          {avatarDraft ? (
+            <div className="avatar-cropper">
+              <div className="avatar-crop-frame">
+                <img
+                  src={avatarDraft}
+                  alt="Previa do corte"
+                  style={{
+                    transform: `translate(${avatarOffsetX * 0.75}px, ${avatarOffsetY * 0.75}px) scale(${avatarZoom})`,
+                  }}
+                />
+              </div>
+              <div className="crop-controls">
+                <label>
+                  Zoom
+                  <input type="range" min="1" max="3" step="0.05" value={avatarZoom} onChange={(event) => setAvatarZoom(event.target.value)} />
+                </label>
+                <label>
+                  Horizontal
+                  <input type="range" min="-120" max="120" step="1" value={avatarOffsetX} onChange={(event) => setAvatarOffsetX(event.target.value)} />
+                </label>
+                <label>
+                  Vertical
+                  <input type="range" min="-120" max="120" step="1" value={avatarOffsetY} onChange={(event) => setAvatarOffsetY(event.target.value)} />
+                </label>
+                <div className="avatar-crop-actions">
+                  <button type="button" className="secondary-button" onClick={() => setAvatarDraft(null)} disabled={isSubmitting}>
+                    Cancelar
+                  </button>
+                  <button type="button" className="primary-button" onClick={saveAvatar} disabled={readOnly || isSubmitting}>
+                    <CheckCircle2 size={17} />
+                    Salvar avatar
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </section>
 
         <div className="account-form">
           <label>
