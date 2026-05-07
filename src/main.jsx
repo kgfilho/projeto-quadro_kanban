@@ -23,6 +23,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { getBoardState, saveBoardState } from './api.js';
 import './styles.css';
 
 const defaultAreas = [
@@ -83,14 +84,15 @@ function normalizeAreas(areas) {
 
 function normalizeBoard(board, areas) {
   return areas.reduce((acc, area) => {
-    acc[area.id] = Array.isArray(board?.[area.id]) ? board[area.id].map(normalizeTask) : [];
+    acc[area.id] = Array.isArray(board?.[area.id]) ? board[area.id].map((task) => normalizeTask(task, area.id)) : [];
     return acc;
   }, {});
 }
 
-function normalizeTask(task) {
+function normalizeTask(task, columnId = 'todo') {
   return {
     ...task,
+    columnId: task.columnId || columnId,
     tags: Array.isArray(task.tags) ? task.tags : [],
     checklist: Array.isArray(task.checklist) ? task.checklist : [],
   };
@@ -176,9 +178,39 @@ function App() {
   const [areaModal, setAreaModal] = React.useState(null);
   const [confirmDialog, setConfirmDialog] = React.useState(null);
   const [toasts, setToasts] = React.useState([]);
+  const [apiStatus, setApiStatus] = React.useState('checking');
   const [activeTask, setActiveTask] = React.useState(null);
   const fileInputRef = React.useRef(null);
+  const hydratedRef = React.useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadRemoteBoard() {
+      try {
+        const remoteState = await getBoardState();
+        if (cancelled) return;
+        const remoteAreas = normalizeAreas(remoteState.areas);
+        setAreas(remoteAreas);
+        setBoard(normalizeBoard(remoteState.board, remoteAreas));
+        setApiStatus('online');
+        hydratedRef.current = true;
+        showToast('API conectada.');
+      } catch {
+        if (cancelled) return;
+        setApiStatus('offline');
+        hydratedRef.current = true;
+        showToast('API offline. Usando dados locais.', 'warning');
+      }
+    }
+
+    loadRemoteBoard();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     localStorage.setItem('chronosAreas', JSON.stringify(areas));
@@ -188,6 +220,21 @@ function App() {
   React.useEffect(() => {
     localStorage.setItem('kanbanBoard', JSON.stringify(board));
   }, [board]);
+
+  React.useEffect(() => {
+    if (!hydratedRef.current || apiStatus !== 'online') return undefined;
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        await saveBoardState({ areas, board });
+      } catch {
+        setApiStatus('offline');
+        showToast('Nao foi possivel sincronizar com a API.', 'warning');
+      }
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [areas, board, apiStatus]);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -202,7 +249,7 @@ function App() {
     total: allTasks.length,
     urgent: allTasks.filter((task) => task.priority === 'prioridade-alta').length,
     dueSoon: allTasks.filter((task) => isDueSoon(task.dueDate)).length,
-    overdue: allTasks.filter((task) => getDueStatus(task.dueDate).type === 'overdue').length,
+    overdue: allTasks.filter((task) => getDueStatus(task.dueDate)?.type === 'overdue').length,
     done: board.done.length,
   };
   const donePercent = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
@@ -435,6 +482,7 @@ function App() {
         </div>
 
         <div className="toolbar">
+          <span className={`api-status ${apiStatus}`}>{apiStatus === 'online' ? 'API online' : apiStatus === 'offline' ? 'API offline' : 'Conectando API'}</span>
           <label className="search-field">
             <Search size={18} />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />

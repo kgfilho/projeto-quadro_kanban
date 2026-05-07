@@ -15,10 +15,13 @@ Aplicacao Kanban para atividades pessoais, agora evoluida para React com Vite.
 
 ```bash
 npm install
+cp .env.example .env
 npm run dev
 ```
 
 Acesse `http://127.0.0.1:5173/`.
+
+Por padrao o front usa a API em `http://127.0.0.1:3333`.
 
 ## Build de producao
 
