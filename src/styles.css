@@ -254,7 +254,7 @@ select:focus,
   border: 0;
   background: var(--accent);
   color: var(--accent-text);
-  font-weight: 800;
+  font-weight: 500;
   box-shadow: none;
 }
 
