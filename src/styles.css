@@ -171,6 +171,14 @@ h1 {
   background: var(--danger);
 }
 
+.api-status.realtime.online::before {
+  background: #0891b2;
+}
+
+.api-status.realtime.idle::before {
+  background: var(--text-secondary);
+}
+
 .search-field {
   display: flex;
   align-items: center;

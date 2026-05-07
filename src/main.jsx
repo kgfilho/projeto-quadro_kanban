@@ -41,6 +41,7 @@ import {
   registerUser,
   removeWorkspaceMember,
   saveProjectBoard,
+  subscribeToProjectEvents,
   updateWorkspaceMember,
 } from './api.js';
 import './styles.css';
@@ -184,6 +185,7 @@ function App() {
   const [confirmDialog, setConfirmDialog] = React.useState(null);
   const [toasts, setToasts] = React.useState([]);
   const [apiStatus, setApiStatus] = React.useState('checking');
+  const [realtimeStatus, setRealtimeStatus] = React.useState('idle');
   const [authStatus, setAuthStatus] = React.useState('checking');
   const [user, setUser] = React.useState(null);
   const [workspaces, setWorkspaces] = React.useState([]);
@@ -195,6 +197,7 @@ function App() {
   const [activeTask, setActiveTask] = React.useState(null);
   const fileInputRef = React.useRef(null);
   const hydratedRef = React.useRef(false);
+  const applyingRemoteRef = React.useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const showToast = React.useCallback((message, tone = 'success') => {
@@ -215,6 +218,23 @@ function App() {
     setApiStatus('online');
     hydratedRef.current = true;
   }, []);
+
+  const applyRemoteBoard = React.useCallback(async (projectId, updatedBy) => {
+    applyingRemoteRef.current = true;
+    hydratedRef.current = false;
+    const remoteState = await getProjectBoard(projectId);
+    const remoteAreas = normalizeAreas(remoteState.areas);
+    setAreas(remoteAreas);
+    setBoard(normalizeBoard(remoteState.board, remoteAreas));
+    setApiStatus('online');
+    window.setTimeout(() => {
+      applyingRemoteRef.current = false;
+      hydratedRef.current = true;
+    }, 0);
+    if (updatedBy?.name) {
+      showToast(`Quadro atualizado por ${updatedBy.name}.`);
+    }
+  }, [showToast]);
 
   const loadMembers = React.useCallback(async (workspaceId) => {
     if (!workspaceId) {
@@ -300,7 +320,44 @@ function App() {
   const canManageTeam = ['owner', 'admin'].includes(selectedWorkspace?.role);
 
   React.useEffect(() => {
-    if (!hydratedRef.current || apiStatus !== 'online' || authStatus !== 'authenticated' || !selectedProjectId || !canEditBoard) return undefined;
+    if (authStatus !== 'authenticated' || !selectedProjectId) {
+      setRealtimeStatus('idle');
+      return undefined;
+    }
+
+    const eventSource = subscribeToProjectEvents(selectedProjectId);
+    setRealtimeStatus('connecting');
+
+    eventSource.addEventListener('connected', () => {
+      setRealtimeStatus('online');
+    });
+
+    eventSource.addEventListener('board-updated', (event) => {
+      const payload = JSON.parse(event.data);
+      applyRemoteBoard(payload.projectId, payload.updatedBy).catch(() => {
+        setRealtimeStatus('offline');
+        showToast('Nao foi possivel aplicar atualizacao em tempo real.', 'warning');
+      });
+    });
+
+    eventSource.onerror = () => {
+      setRealtimeStatus('offline');
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [authStatus, selectedProjectId, applyRemoteBoard, showToast]);
+
+  React.useEffect(() => {
+    if (
+      applyingRemoteRef.current ||
+      !hydratedRef.current ||
+      apiStatus !== 'online' ||
+      authStatus !== 'authenticated' ||
+      !selectedProjectId ||
+      !canEditBoard
+    ) return undefined;
 
     const timeoutId = window.setTimeout(async () => {
       try {
@@ -677,6 +734,9 @@ function App() {
 
         <div className="toolbar">
           <span className={`api-status ${apiStatus}`}>{apiStatus === 'online' ? 'API online' : apiStatus === 'offline' ? 'API offline' : 'Conectando API'}</span>
+          <span className={`api-status realtime ${realtimeStatus}`}>
+            {realtimeStatus === 'online' ? 'Tempo real' : realtimeStatus === 'offline' ? 'Sem tempo real' : realtimeStatus === 'connecting' ? 'Conectando realtime' : 'Realtime ocioso'}
+          </span>
           <label className="search-field">
             <Search size={18} />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />

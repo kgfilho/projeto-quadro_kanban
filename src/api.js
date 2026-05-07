@@ -99,6 +99,25 @@ export function getProjectBoard(projectId) {
 export function saveProjectBoard(projectId, state) {
   return request(`/api/projects/${projectId}/board`, {
     method: 'PUT',
+    headers: {
+      'x-chronos-client-id': getRealtimeClientId(),
+    },
     body: JSON.stringify(state),
   });
+}
+
+export function getRealtimeClientId() {
+  const storageKey = 'chronosClientId';
+  const savedId = sessionStorage.getItem(storageKey);
+  if (savedId) return savedId;
+
+  const id = `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  sessionStorage.setItem(storageKey, id);
+  return id;
+}
+
+export function subscribeToProjectEvents(projectId) {
+  const url = new URL(`${API_URL}/api/projects/${projectId}/events`);
+  url.searchParams.set('clientId', getRealtimeClientId());
+  return new EventSource(url, { withCredentials: true });
 }
