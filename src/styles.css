@@ -1059,7 +1059,7 @@ select:focus,
 
 .invite-form {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 150px auto;
+  grid-template-columns: minmax(220px, 1fr) 150px 140px auto;
   gap: 12px;
   align-items: end;
   padding: 12px;

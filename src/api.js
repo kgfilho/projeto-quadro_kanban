@@ -89,7 +89,7 @@ export function createWorkspaceInvite(workspaceId, payload) {
   return request(`/api/workspaces/${workspaceId}/invites`, {
     method: 'POST',
     body: JSON.stringify(payload),
-  }).then((data) => data.invite);
+  });
 }
 
 export function revokeWorkspaceInvite(workspaceId, inviteId) {

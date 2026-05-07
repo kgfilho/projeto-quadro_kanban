@@ -783,9 +783,9 @@ function App() {
   }
 
   async function createInviteLink(payload) {
-    await createWorkspaceInvite(selectedWorkspaceId, payload);
+    const result = await createWorkspaceInvite(selectedWorkspaceId, payload);
     await loadInvites(selectedWorkspaceId);
-    showToast('Link de convite criado.');
+    showToast(result.email?.sent ? 'Convite enviado por e-mail.' : 'Link de convite criado.');
   }
 
   async function revokeInviteLink(inviteId) {
@@ -1531,7 +1531,7 @@ function TeamModal({
   onRemoveMember,
 }) {
   const [form, setForm] = React.useState({ email: '', role: 'viewer' });
-  const [linkForm, setLinkForm] = React.useState({ role: 'viewer', expiresInDays: 7 });
+  const [linkForm, setLinkForm] = React.useState({ email: '', role: 'viewer', expiresInDays: 7 });
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -1564,9 +1564,11 @@ function TeamModal({
     setIsSubmitting(true);
     try {
       await onCreateInviteLink({
+        ...(linkForm.email.trim() ? { email: linkForm.email.trim() } : {}),
         role: linkForm.role,
         expiresInDays: Number(linkForm.expiresInDays),
       });
+      setLinkForm((currentForm) => ({ ...currentForm, email: '' }));
     } catch (submitError) {
       setError(submitError.message || 'Nao foi possivel criar o link.');
     } finally {
@@ -1619,7 +1621,11 @@ function TeamModal({
             </form>
             <form className="invite-form" onSubmit={createLink}>
               <label>
-                Link de convite
+                E-mail opcional
+                <input type="email" value={linkForm.email} onChange={(event) => setLinkForm((currentForm) => ({ ...currentForm, email: event.target.value }))} placeholder="envia por e-mail" />
+              </label>
+              <label>
+                Papel
                 <select value={linkForm.role} onChange={(event) => setLinkForm((currentForm) => ({ ...currentForm, role: event.target.value }))}>
                   {memberRoles.map((role) => (
                     <option key={role.id} value={role.id}>
@@ -1639,7 +1645,7 @@ function TeamModal({
               </label>
               <button type="submit" className="secondary-button" disabled={isSubmitting}>
                 <Plus size={18} />
-                Criar link
+                {linkForm.email.trim() ? 'Enviar convite' : 'Criar link'}
               </button>
             </form>
           </>
