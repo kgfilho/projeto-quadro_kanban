@@ -454,6 +454,29 @@ select:focus,
   margin-bottom: 14px;
 }
 
+.connection-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.12);
+}
+
+.connection-banner strong,
+.connection-banner span {
+  display: block;
+}
+
+.connection-banner span {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .view-switcher {
   display: inline-flex;
   padding: 4px;
@@ -1051,6 +1074,12 @@ select:focus,
   font-weight: 800;
 }
 
+.form-error.warning {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1538,6 +1567,7 @@ select:focus,
   }
 
   .context-actions,
+  .connection-banner,
   .workspace-bar,
   .board-toolbar {
     align-items: stretch;

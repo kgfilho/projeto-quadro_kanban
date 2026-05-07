@@ -413,10 +413,11 @@ function App() {
 
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
-  const canEditBoard = ['owner', 'admin', 'editor'].includes(selectedProject?.role);
-  const canManageTeam = ['owner', 'admin'].includes(selectedWorkspace?.role);
-  const canManageProject = ['owner', 'admin'].includes(selectedProject?.role);
-  const canDeleteWorkspace = selectedWorkspace?.role === 'owner';
+  const connectionReadOnly = authStatus === 'authenticated' && Boolean(selectedProjectId) && (apiStatus !== 'online' || realtimeStatus !== 'online');
+  const canEditBoard = !connectionReadOnly && ['owner', 'admin', 'editor'].includes(selectedProject?.role);
+  const canManageTeam = !connectionReadOnly && ['owner', 'admin'].includes(selectedWorkspace?.role);
+  const canManageProject = !connectionReadOnly && ['owner', 'admin'].includes(selectedProject?.role);
+  const canDeleteWorkspace = !connectionReadOnly && selectedWorkspace?.role === 'owner';
   const canDeleteProject = canManageProject;
 
   React.useEffect(() => {
@@ -431,6 +432,9 @@ function App() {
     eventSource.addEventListener('connected', () => {
       setApiStatus('online');
       setRealtimeStatus('online');
+      loadProjectBoard(selectedProjectId).catch(() => {
+        setApiStatus('offline');
+      });
     });
 
     eventSource.addEventListener('board-updated', (event) => {
@@ -457,7 +461,7 @@ function App() {
     return () => {
       eventSource.close();
     };
-  }, [authStatus, selectedProjectId, applyRemoteBoard, showToast]);
+  }, [authStatus, selectedProjectId, applyRemoteBoard, loadProjectBoard, showToast]);
 
   React.useEffect(() => {
     if (
@@ -728,6 +732,23 @@ function App() {
     await loadProjectBoard(projectId);
   }
 
+  async function retryConnection() {
+    if (!selectedProjectId) {
+      await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId });
+      return;
+    }
+    setApiStatus('checking');
+    setRealtimeStatus('connecting');
+    try {
+      await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: selectedProjectId });
+      setApiStatus('online');
+    } catch {
+      setApiStatus('offline');
+      setRealtimeStatus('offline');
+      showToast('A API ainda nao respondeu.', 'warning');
+    }
+  }
+
   async function saveNameModal(name) {
     const cleanName = name.trim();
     if (!cleanName) return;
@@ -787,7 +808,7 @@ function App() {
 
   async function saveUserTheme(nextTheme) {
     setTheme(nextTheme);
-    if (authStatus !== 'authenticated') return;
+    if (authStatus !== 'authenticated' || connectionReadOnly) return;
     try {
       const updatedUser = await updateCurrentUserPreferences({ preferredTheme: nextTheme });
       setUser(updatedUser);
@@ -983,6 +1004,19 @@ function App() {
         </div>
       </section>
 
+      {connectionReadOnly ? (
+        <section className="connection-banner" role="status" aria-live="polite">
+          <div>
+            <strong>Conexao perdida</strong>
+            <span>O Chronos esta em somente leitura ate reconectar e recarregar o projeto.</span>
+          </div>
+          <button type="button" className="secondary-button" onClick={retryConnection}>
+            <TimerReset size={17} />
+            Tentar novamente
+          </button>
+        </section>
+      ) : null}
+
       <section className="workspace-bar" aria-label="Resumo e filtros">
         <div className="view-switcher" role="tablist" aria-label="Visualizacao">
           <button type="button" className={activeView === 'board' ? 'active' : ''} onClick={() => setActiveView('board')}>
@@ -1104,6 +1138,7 @@ function App() {
           onUpdateProfile={updateUserProfile}
           onUpdatePassword={updateUserPassword}
           onUpdateTheme={saveUserTheme}
+          readOnly={connectionReadOnly}
           onLogout={handleLogout}
         />
       ) : null}
@@ -1962,7 +1997,7 @@ function SettingsView({
   );
 }
 
-function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword, onUpdateTheme, onLogout }) {
+function AccountModal({ user, theme, readOnly, onClose, onUpdateProfile, onUpdatePassword, onUpdateTheme, onLogout }) {
   const [profileName, setProfileName] = React.useState(user?.name || '');
   const [avatarUrl, setAvatarUrl] = React.useState(user?.avatarUrl || '');
   const [passwordForm, setPasswordForm] = React.useState({ currentPassword: '', newPassword: '' });
@@ -2020,17 +2055,18 @@ function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword,
         </header>
 
         {error ? <p className="form-error">{error}</p> : null}
+        {readOnly ? <p className="form-error warning">Conta em somente leitura ate a API reconectar.</p> : null}
 
         <form className="account-form" onSubmit={saveProfile}>
           <label>
             Nome
-            <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+            <input value={profileName} onChange={(event) => setProfileName(event.target.value)} disabled={readOnly} />
           </label>
           <label>
             Avatar URL
-            <input type="url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://..." />
+            <input type="url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://..." disabled={readOnly} />
           </label>
-          <button type="submit" className="secondary-button" disabled={isSubmitting || !profileName.trim() || (profileName.trim() === user?.name && avatarUrl.trim() === (user?.avatarUrl || ''))}>
+          <button type="submit" className="secondary-button" disabled={readOnly || isSubmitting || !profileName.trim() || (profileName.trim() === user?.name && avatarUrl.trim() === (user?.avatarUrl || ''))}>
             <CheckCircle2 size={17} />
             Salvar perfil
           </button>
@@ -2039,7 +2075,7 @@ function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword,
         <div className="account-form">
           <label>
             Tema
-            <select value={theme} onChange={(event) => onUpdateTheme(event.target.value)}>
+            <select value={theme} onChange={(event) => onUpdateTheme(event.target.value)} disabled={readOnly}>
               <option value="light">Claro</option>
               <option value="dark">Escuro</option>
             </select>
@@ -2049,13 +2085,13 @@ function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword,
         <form className="account-form" onSubmit={savePassword}>
           <label>
             Senha atual
-            <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, currentPassword: event.target.value }))} autoComplete="current-password" />
+            <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, currentPassword: event.target.value }))} autoComplete="current-password" disabled={readOnly} />
           </label>
           <label>
             Nova senha
-            <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, newPassword: event.target.value }))} autoComplete="new-password" />
+            <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, newPassword: event.target.value }))} autoComplete="new-password" disabled={readOnly} />
           </label>
-          <button type="submit" className="secondary-button" disabled={isSubmitting || !passwordForm.currentPassword || passwordForm.newPassword.length < 10}>
+          <button type="submit" className="secondary-button" disabled={readOnly || isSubmitting || !passwordForm.currentPassword || passwordForm.newPassword.length < 10}>
             <CheckCircle2 size={17} />
             Alterar senha
           </button>
