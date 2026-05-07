@@ -1,0 +1,954 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { closestCorners, DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Calendar,
+  CheckCircle2,
+  Circle,
+  CircleDotDashed,
+  ClipboardList,
+  Download,
+  Edit3,
+  Moon,
+  Plus,
+  Search,
+  SquareKanban,
+  TimerReset,
+  Sun,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
+import './styles.css';
+
+const defaultAreas = [
+  { id: 'todo', title: 'A Fazer', helper: 'Ideias e proximas tarefas', icon: 'circle', locked: true },
+  { id: 'in-progress', title: 'Em Andamento', helper: 'Foco atual do dia', icon: 'progress', locked: true },
+  { id: 'done', title: 'Concluido', helper: 'Entregas finalizadas', icon: 'done', locked: true },
+];
+
+const priorities = [
+  { id: 'prioridade-baixa', label: 'Baixa', rank: 3 },
+  { id: 'prioridade-media', label: 'Media', rank: 2 },
+  { id: 'prioridade-alta', label: 'Alta', rank: 1 },
+];
+
+const emptyBoard = {
+  todo: [],
+  'in-progress': [],
+  done: [],
+};
+
+const areaIcons = {
+  circle: Circle,
+  progress: CircleDotDashed,
+  done: CheckCircle2,
+  custom: SquareKanban,
+};
+
+function normalizeAreas(areas) {
+  if (!Array.isArray(areas) || areas.length === 0) return defaultAreas;
+  const normalized = areas
+    .filter((area) => area?.id)
+    .map((area) => {
+      const defaultArea = defaultAreas.find((item) => item.id === area.id);
+      return {
+        ...(defaultArea || {}),
+        id: area.id,
+        title: area.title || defaultArea?.title || 'Nova area',
+        helper: area.helper || defaultArea?.helper || 'Area personalizada',
+        icon: area.icon || defaultArea?.icon || 'custom',
+        locked: defaultArea?.locked || false,
+      };
+    });
+
+  defaultAreas.forEach((area) => {
+    if (!normalized.some((item) => item.id === area.id)) {
+      normalized.push(area);
+    }
+  });
+
+  return normalized.map((area) => ({
+      id: area.id,
+      title: area.title,
+      helper: area.helper,
+      icon: area.icon,
+      locked: area.locked,
+    }));
+}
+
+function normalizeBoard(board, areas) {
+  return areas.reduce((acc, area) => {
+    acc[area.id] = Array.isArray(board?.[area.id]) ? board[area.id].map(normalizeTask) : [];
+    return acc;
+  }, {});
+}
+
+function normalizeTask(task) {
+  return {
+    ...task,
+    tags: Array.isArray(task.tags) ? task.tags : [],
+    checklist: Array.isArray(task.checklist) ? task.checklist : [],
+  };
+}
+
+function createTaskId() {
+  return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createAreaId(title) {
+  const slug = title
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36);
+  return `area-${slug || Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+function sortTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    const priorityA = priorities.find((priority) => priority.id === a.priority)?.rank ?? 3;
+    const priorityB = priorities.find((priority) => priority.id === b.priority)?.rank ?? 3;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    return (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31');
+  });
+}
+
+function isDueSoon(dateValue) {
+  return getDueStatus(dateValue)?.type === 'soon';
+}
+
+function getDueStatus(dateValue) {
+  if (!dateValue) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDate = new Date(`${dateValue}T00:00:00`);
+  const diffDays = Math.ceil((dueDate - today) / 86400000);
+  if (diffDays < 0) return { type: 'overdue', label: 'Atrasada' };
+  if (diffDays === 0) return { type: 'today', label: 'Hoje' };
+  if (diffDays <= 2) return { type: 'soon', label: 'Em breve' };
+  return { type: 'scheduled', label: dateValue };
+}
+
+function parseTags(value) {
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function checklistProgress(checklist = []) {
+  if (!checklist.length) return null;
+  const done = checklist.filter((item) => item.done).length;
+  return { done, total: checklist.length, percent: Math.round((done / checklist.length) * 100) };
+}
+
+function App() {
+  const [areas, setAreas] = React.useState(() => {
+    const savedAreas = localStorage.getItem('chronosAreas');
+    try {
+      return normalizeAreas(savedAreas ? JSON.parse(savedAreas) : defaultAreas);
+    } catch {
+      return defaultAreas;
+    }
+  });
+  const [board, setBoard] = React.useState(() => {
+    try {
+      const savedAreas = normalizeAreas(JSON.parse(localStorage.getItem('chronosAreas') || 'null'));
+      const savedBoard = localStorage.getItem('kanbanBoard');
+      return savedBoard ? normalizeBoard(JSON.parse(savedBoard), savedAreas) : normalizeBoard(emptyBoard, savedAreas);
+    } catch {
+      return emptyBoard;
+    }
+  });
+  const [theme, setTheme] = React.useState(() => localStorage.getItem('theme') || 'light');
+  const [query, setQuery] = React.useState('');
+  const [priorityFilter, setPriorityFilter] = React.useState('all');
+  const [activeView, setActiveView] = React.useState('board');
+  const [modalTask, setModalTask] = React.useState(null);
+  const [areaModal, setAreaModal] = React.useState(null);
+  const [confirmDialog, setConfirmDialog] = React.useState(null);
+  const [toasts, setToasts] = React.useState([]);
+  const [activeTask, setActiveTask] = React.useState(null);
+  const fileInputRef = React.useRef(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  React.useEffect(() => {
+    localStorage.setItem('chronosAreas', JSON.stringify(areas));
+    setBoard((currentBoard) => normalizeBoard(currentBoard, areas));
+  }, [areas]);
+
+  React.useEffect(() => {
+    localStorage.setItem('kanbanBoard', JSON.stringify(board));
+  }, [board]);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const allTasks = areas.flatMap((area) => (board[area.id] || []).map((task) => ({ ...task, columnId: area.id })));
+  const calendarTasks = allTasks
+    .filter((task) => task.dueDate)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const stats = {
+    total: allTasks.length,
+    urgent: allTasks.filter((task) => task.priority === 'prioridade-alta').length,
+    dueSoon: allTasks.filter((task) => isDueSoon(task.dueDate)).length,
+    overdue: allTasks.filter((task) => getDueStatus(task.dueDate).type === 'overdue').length,
+    done: board.done.length,
+  };
+  const donePercent = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
+
+  function showToast(message, tone = 'success') {
+    const id = `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((currentToasts) => [...currentToasts, { id, message, tone }]);
+    window.setTimeout(() => {
+      setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id));
+    }, 3200);
+  }
+
+  function saveTask(taskData) {
+    const normalizedTask = normalizeTask(taskData);
+    setBoard((currentBoard) => {
+      const nextBoard = normalizeBoard(currentBoard, areas);
+      if (normalizedTask.id) {
+        const withoutTask = Object.fromEntries(
+          areas.map((area) => [area.id, nextBoard[area.id].filter((task) => task.id !== normalizedTask.id)]),
+        );
+        withoutTask[normalizedTask.columnId] = sortTasks([...withoutTask[normalizedTask.columnId], normalizedTask]);
+        return withoutTask;
+      }
+
+      const newTask = { ...normalizedTask, id: createTaskId() };
+      return {
+        ...nextBoard,
+        [newTask.columnId]: sortTasks([...nextBoard[newTask.columnId], newTask]),
+      };
+    });
+    setModalTask(null);
+    showToast(normalizedTask.id ? 'Tarefa atualizada.' : 'Tarefa criada.');
+  }
+
+  function toggleChecklistItem(taskId, itemId) {
+    setBoard((currentBoard) =>
+      Object.fromEntries(
+        areas.map((area) => [
+          area.id,
+          (currentBoard[area.id] || []).map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  checklist: (task.checklist || []).map((item) => (item.id === itemId ? { ...item, done: !item.done } : item)),
+                }
+              : task,
+          ),
+        ]),
+      ),
+    );
+  }
+
+  function deleteTask(taskId) {
+    const task = allTasks.find((item) => item.id === taskId);
+    setConfirmDialog({
+      title: 'Excluir tarefa',
+      message: `Excluir "${task?.title || 'esta tarefa'}"? Esta acao nao pode ser desfeita.`,
+      confirmLabel: 'Excluir',
+      tone: 'danger',
+      onConfirm: () => {
+        setBoard((currentBoard) =>
+          Object.fromEntries(areas.map((area) => [area.id, (currentBoard[area.id] || []).filter((item) => item.id !== taskId)])),
+        );
+        showToast('Tarefa excluida.', 'danger');
+      },
+    });
+  }
+
+  function saveArea(areaData) {
+    const title = areaData.title.trim();
+    if (!title) return;
+    if (areaData.id) {
+      setAreas((currentAreas) =>
+        currentAreas.map((area) =>
+          area.id === areaData.id
+            ? { ...area, title, helper: areaData.helper.trim() || 'Area personalizada' }
+            : area,
+        ),
+      );
+      setAreaModal(null);
+      showToast('Area atualizada.');
+      return;
+    }
+
+    const newArea = {
+      id: createAreaId(title),
+      title,
+      helper: areaData.helper.trim() || 'Area personalizada',
+      icon: 'custom',
+      locked: false,
+    };
+    setAreas((currentAreas) => [...currentAreas, newArea]);
+    setAreaModal(null);
+    showToast('Area criada.');
+  }
+
+  function deleteArea(areaId) {
+    const area = areas.find((item) => item.id === areaId);
+    if (!area || area.locked) return;
+    if ((board[areaId] || []).length > 0) {
+      showToast('Mova ou exclua as tarefas desta area antes de remover.', 'warning');
+      return;
+    }
+    setConfirmDialog({
+      title: 'Remover area',
+      message: `Remover a area "${area.title}"?`,
+      confirmLabel: 'Remover',
+      tone: 'danger',
+      onConfirm: () => {
+        setAreas((currentAreas) => currentAreas.filter((item) => item.id !== areaId));
+        setBoard((currentBoard) => {
+          const { [areaId]: _removed, ...nextBoard } = currentBoard;
+          return nextBoard;
+        });
+        showToast('Area removida.', 'danger');
+      },
+    });
+  }
+
+  function moveArea(areaId, direction) {
+    const currentIndex = areas.findIndex((area) => area.id === areaId);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= areas.length) return;
+    setAreas((currentAreas) => arrayMove(currentAreas, currentIndex, targetIndex));
+  }
+
+  function handleDragStart(event) {
+    const task = allTasks.find((item) => item.id === event.active.id);
+    setActiveTask(task || null);
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    setActiveTask(null);
+    if (!over) return;
+
+    setBoard((currentBoard) => {
+      const sourceColumn = findTaskColumn(currentBoard, areas, active.id);
+      const targetColumn = areas.some((area) => area.id === over.id) ? over.id : findTaskColumn(currentBoard, areas, over.id);
+
+      if (!sourceColumn || !targetColumn) return currentBoard;
+      if (sourceColumn === targetColumn) {
+        const sourceTasks = currentBoard[sourceColumn] || [];
+        const activeIndex = sourceTasks.findIndex((task) => task.id === active.id);
+        const overIndex = sourceTasks.findIndex((task) => task.id === over.id);
+        if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) return currentBoard;
+        return {
+          ...currentBoard,
+          [sourceColumn]: arrayMove(sourceTasks, activeIndex, overIndex),
+        };
+      }
+
+      const sourceTasks = currentBoard[sourceColumn] || [];
+      const targetTasks = currentBoard[targetColumn] || [];
+      const movingTask = sourceTasks.find((task) => task.id === active.id);
+      if (!movingTask) return currentBoard;
+      const targetIndex = targetTasks.findIndex((task) => task.id === over.id);
+      const insertIndex = targetIndex >= 0 ? targetIndex : targetTasks.length;
+      const nextTargetTasks = [...targetTasks];
+      nextTargetTasks.splice(insertIndex, 0, { ...movingTask, columnId: targetColumn });
+
+      return {
+        ...currentBoard,
+        [sourceColumn]: (currentBoard[sourceColumn] || []).filter((task) => task.id !== active.id),
+        [targetColumn]: nextTargetTasks,
+      };
+    });
+  }
+
+  function exportBoard() {
+    const exportData = {
+      app: 'Chronos',
+      version: 1,
+      areas,
+      board,
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'chronos-board.json';
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast('Quadro exportado.');
+  }
+
+  function importBoard(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const importedData = JSON.parse(reader.result);
+        const importedAreas = importedData.areas ? normalizeAreas(importedData.areas) : areas;
+        const importedBoard = normalizeBoard(importedData.board || importedData, importedAreas);
+        setAreas(importedAreas);
+        setBoard(
+          Object.fromEntries(
+            importedAreas.map((area) => [
+              area.id,
+              sortTasks(
+                importedBoard[area.id]
+                  .filter((task) => task.title && priorities.some((priority) => priority.id === task.priority))
+                  .map(normalizeTask),
+              ),
+            ]),
+          ),
+        );
+        showToast('Quadro importado.');
+      } catch {
+        showToast('Arquivo JSON invalido.', 'danger');
+      } finally {
+        event.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  return (
+    <main className="app-shell">
+      <header className="top-panel">
+        <div className="brand-block">
+          <span className="brand-mark">
+            <ClipboardList size={24} />
+          </span>
+          <div>
+            <p className="eyebrow">Quadro pessoal</p>
+            <h1>Chronos</h1>
+          </div>
+        </div>
+
+        <div className="toolbar">
+          <label className="search-field">
+            <Search size={18} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />
+          </label>
+          <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} aria-label="Filtrar por prioridade">
+            <option value="all">Todas</option>
+            {priorities.map((priority) => (
+              <option key={priority.id} value={priority.id}>
+                {priority.label}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button type="button" className="icon-button" onClick={() => fileInputRef.current.click()} aria-label="Importar quadro">
+            <Upload size={18} />
+          </button>
+          <button type="button" className="icon-button" onClick={exportBoard} aria-label="Exportar quadro">
+            <Download size={18} />
+          </button>
+          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: 'todo' })}>
+            <Plus size={18} />
+            Nova tarefa
+          </button>
+          <input ref={fileInputRef} type="file" accept=".json" onChange={importBoard} hidden />
+        </div>
+      </header>
+
+      <section className="stats-row" aria-label="Resumo do quadro">
+        <StatCard label="Tarefas" value={stats.total} icon={ClipboardList} tone="blue" />
+        <StatCard label="Alta prioridade" value={stats.urgent} icon={TimerReset} tone="red" />
+        <StatCard label="Atrasadas" value={stats.overdue} icon={TimerReset} tone="red" />
+        <StatCard label="Vencem em breve" value={stats.dueSoon} icon={Calendar} tone="amber" />
+        <StatCard label="Concluidas" value={`${donePercent}%`} detail={`${stats.done} de ${stats.total || 0}`} icon={CheckCircle2} tone="green" />
+      </section>
+
+      <section className="board-actions" aria-label="Acoes das areas">
+        <div className="view-switcher" role="tablist" aria-label="Visualizacao">
+          <button type="button" className={activeView === 'board' ? 'active' : ''} onClick={() => setActiveView('board')}>
+            Quadro
+          </button>
+          <button type="button" className={activeView === 'calendar' ? 'active' : ''} onClick={() => setActiveView('calendar')}>
+            Calendario
+          </button>
+        </div>
+        <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })}>
+          <SquareKanban size={18} />
+          Nova area
+        </button>
+      </section>
+
+      {activeView === 'board' ? (
+        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <section className="kanban-board">
+            {areas.map((area, index) => (
+              <KanbanColumn
+                key={area.id}
+                area={area}
+                areaIndex={index}
+                areaCount={areas.length}
+                tasks={board[area.id] || []}
+                query={query}
+                priorityFilter={priorityFilter}
+                onAddTask={() => setModalTask({ columnId: area.id })}
+                onEditTask={(task) => setModalTask({ ...task, columnId: area.id })}
+                onDeleteTask={deleteTask}
+                onToggleChecklistItem={toggleChecklistItem}
+                onMoveArea={moveArea}
+                onEditArea={() => setAreaModal({ mode: 'edit', area })}
+                onDeleteArea={() => deleteArea(area.id)}
+              />
+            ))}
+          </section>
+          <DragOverlay>{activeTask ? <TaskCardView task={activeTask} isOverlay /> : null}</DragOverlay>
+        </DndContext>
+      ) : (
+        <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => setModalTask(task)} />
+      )}
+
+      {modalTask ? <TaskModal task={modalTask} areas={areas} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
+      {areaModal ? <AreaModal area={areaModal.area} onClose={() => setAreaModal(null)} onSave={saveArea} /> : null}
+      {confirmDialog ? <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} /> : null}
+      <ToastList toasts={toasts} onDismiss={(id) => setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id))} />
+    </main>
+  );
+}
+
+function findTaskColumn(board, areas, taskId) {
+  return areas.find((area) => (board[area.id] || []).some((task) => task.id === taskId))?.id;
+}
+
+function StatCard({ label, value, detail, icon: Icon, tone }) {
+  return (
+    <article className={`stat-card ${tone}`}>
+      <span className="stat-icon">
+        <Icon size={18} />
+      </span>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        {detail ? <small>{detail}</small> : null}
+      </div>
+    </article>
+  );
+}
+
+function KanbanColumn({
+  area,
+  areaIndex,
+  areaCount,
+  tasks,
+  query,
+  priorityFilter,
+  onAddTask,
+  onEditTask,
+  onDeleteTask,
+  onToggleChecklistItem,
+  onMoveArea,
+  onEditArea,
+  onDeleteArea,
+}) {
+  const AreaIcon = areaIcons[area.icon] || SquareKanban;
+  const { isOver, setNodeRef } = useDroppable({ id: area.id });
+  const normalizedQuery = query.toLowerCase();
+  const visibleTasks = tasks.filter((task) => {
+    const matchesText = `${task.title} ${task.description} ${(task.tags || []).join(' ')}`.toLowerCase().includes(normalizedQuery);
+    const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
+    return matchesText && matchesPriority;
+  });
+
+  return (
+    <article ref={setNodeRef} className={`column ${area.id} ${area.locked ? '' : 'custom-area'} ${isOver ? 'is-over' : ''}`}>
+      <header className="column-header">
+        <div className="column-title">
+          <span className="column-icon">
+            <AreaIcon size={18} />
+          </span>
+          <div>
+            <h2>{area.title}</h2>
+            <span>{area.helper}</span>
+          </div>
+        </div>
+        <strong className="column-count">{visibleTasks.length}</strong>
+        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, -1)} disabled={areaIndex === 0} aria-label={`Mover ${area.title} para esquerda`}>
+          <ArrowLeft size={15} />
+        </button>
+        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, 1)} disabled={areaIndex === areaCount - 1} aria-label={`Mover ${area.title} para direita`}>
+          <ArrowRight size={15} />
+        </button>
+        <button type="button" className="icon-button small" onClick={onAddTask} aria-label={`Adicionar em ${area.title}`}>
+          <Plus size={16} />
+        </button>
+        {!area.locked ? (
+          <>
+            <button type="button" className="icon-button small" onClick={onEditArea} aria-label={`Editar area ${area.title}`}>
+              <Edit3 size={15} />
+            </button>
+            <button type="button" className="icon-button small danger-action" onClick={onDeleteArea} aria-label={`Remover area ${area.title}`}>
+              <Trash2 size={15} />
+            </button>
+          </>
+        ) : null}
+      </header>
+
+      <SortableContext items={visibleTasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+        <div className="task-list">
+          {visibleTasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onEdit={() => onEditTask(task)}
+              onDelete={() => onDeleteTask(task.id)}
+              onToggleChecklistItem={onToggleChecklistItem}
+            />
+          ))}
+          {visibleTasks.length === 0 ? (
+            <button type="button" className="empty-state" onClick={onAddTask}>
+              <Plus size={18} />
+              Nada por aqui
+            </button>
+          ) : null}
+        </div>
+      </SortableContext>
+    </article>
+  );
+}
+
+function TaskCard({ task, onEdit, onDelete, onToggleChecklistItem }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <TaskCardView
+      task={task}
+      onEdit={onEdit}
+      onDelete={onDelete}
+      onToggleChecklistItem={onToggleChecklistItem}
+      dragHandleProps={{ ...listeners, ...attributes }}
+      innerRef={setNodeRef}
+      style={style}
+      isDragging={isDragging}
+    />
+  );
+}
+
+function TaskCardView({ task, onEdit, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
+  const priority = priorities.find((item) => item.id === task.priority);
+  const dueStatus = getDueStatus(task.dueDate);
+  const progress = checklistProgress(task.checklist);
+
+  return (
+    <article
+      ref={innerRef}
+      style={style}
+      className={`task ${task.priority} due-${dueStatus?.type || 'none'} ${isDragging ? 'dragging' : ''} ${isOverlay ? 'drag-overlay' : ''}`}
+    >
+      <button type="button" className="drag-handle" {...dragHandleProps} aria-label={`Mover ${task.title}`}>
+        <span />
+      </button>
+      <h3>{task.title}</h3>
+      {task.description ? <p>{task.description}</p> : null}
+      {(task.tags || []).length ? (
+        <div className="tag-list">
+          {task.tags.map((tag) => (
+            <span key={tag}>#{tag}</span>
+          ))}
+        </div>
+      ) : null}
+      {progress ? (
+        <div className="checklist-preview">
+          <div className="checklist-summary">
+            <span>Checklist</span>
+            <strong>{progress.done}/{progress.total}</strong>
+          </div>
+          <div className="checklist-bar">
+            <span style={{ width: `${progress.percent}%` }} />
+          </div>
+          {!isOverlay ? (
+            <div className="checklist-items">
+              {task.checklist.slice(0, 4).map((item) => (
+                <label key={item.id}>
+                  <input type="checkbox" checked={item.done} onChange={() => onToggleChecklistItem?.(task.id, item.id)} />
+                  <span>{item.text}</span>
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="task-meta">
+        <span className="priority-badge">{priority?.label || 'Baixa'}</span>
+        {dueStatus ? (
+          <span className={`due-date ${dueStatus.type}`}>
+            <Calendar size={14} />
+            {dueStatus.label}
+          </span>
+        ) : null}
+      </div>
+      {!isOverlay ? <div className="task-actions">
+        <button type="button" onClick={onEdit} aria-label={`Editar ${task.title}`}>
+          <Edit3 size={16} />
+        </button>
+        <button type="button" onClick={onDelete} aria-label={`Excluir ${task.title}`}>
+          <Trash2 size={16} />
+        </button>
+      </div> : null}
+    </article>
+  );
+}
+
+function TaskModal({ task, areas, onClose, onSave }) {
+  const [form, setForm] = React.useState({
+    id: task.id,
+    title: task.title || '',
+    description: task.description || '',
+    priority: task.priority || 'prioridade-baixa',
+    dueDate: task.dueDate || '',
+    tagsText: (task.tags || []).join(', '),
+    checklistText: (task.checklist || []).map((item) => `${item.done ? '[x]' : '[ ]'} ${item.text}`).join('\n'),
+    columnId: task.columnId || 'todo',
+  });
+
+  function updateField(field, value) {
+    setForm((currentForm) => ({ ...currentForm, [field]: value }));
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    if (!form.title.trim()) return;
+    const { tagsText, checklistText, ...taskFields } = form;
+    const previousChecklist = task.checklist || [];
+    const checklist = checklistText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const done = /^\[[xX]\]\s*/.test(line);
+        const cleanText = line.replace(/^\[[ xX]\]\s*/, '').trim();
+        const previous = previousChecklist.find((item) => item.text === cleanText);
+        return {
+          id: previous?.id || `check-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          text: cleanText,
+          done: previous?.done ?? done,
+        };
+      });
+    onSave({
+      ...taskFields,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      tags: parseTags(tagsText),
+      checklist,
+    });
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="task-modal" onSubmit={submit}>
+        <header>
+          <h2>{form.id ? 'Editar tarefa' : 'Nova tarefa'}</h2>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+
+        <label>
+          Titulo
+          <input value={form.title} onChange={(event) => updateField('title', event.target.value)} autoFocus />
+        </label>
+        <label>
+          Descricao
+          <textarea value={form.description} onChange={(event) => updateField('description', event.target.value)} rows={4} />
+        </label>
+        <div className="form-grid">
+          <label>
+            Prioridade
+            <select value={form.priority} onChange={(event) => updateField('priority', event.target.value)}>
+              {priorities.map((priority) => (
+                <option key={priority.id} value={priority.id}>
+                  {priority.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Vencimento
+            <input type="date" value={form.dueDate} onChange={(event) => updateField('dueDate', event.target.value)} />
+          </label>
+        </div>
+        <label>
+          Tags
+          <input value={form.tagsText} onChange={(event) => updateField('tagsText', event.target.value)} placeholder="Ex: cliente, urgente, design" />
+        </label>
+        <label>
+          Checklist
+          <textarea
+            value={form.checklistText}
+            onChange={(event) => updateField('checklistText', event.target.value)}
+            rows={4}
+            placeholder={"[ ] Primeiro item\n[x] Item concluido"}
+          />
+        </label>
+        <label>
+          Coluna
+          <select value={form.columnId} onChange={(event) => updateField('columnId', event.target.value)}>
+            {areas.map((area) => (
+              <option key={area.id} value={area.id}>
+                {area.title}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary-button">
+            <CheckCircle2 size={18} />
+            Salvar
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function AreaModal({ area, onClose, onSave }) {
+  const [title, setTitle] = React.useState(area?.title || '');
+  const [helper, setHelper] = React.useState(area?.helper || '');
+
+  function submit(event) {
+    event.preventDefault();
+    onSave({ id: area?.id, title, helper });
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="task-modal area-modal" onSubmit={submit}>
+        <header>
+          <h2>{area ? 'Editar area' : 'Nova area'}</h2>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+        <label>
+          Nome da area
+          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex: Revisao, Backlog, Bloqueadas" autoFocus />
+        </label>
+        <label>
+          Descricao curta
+          <input value={helper} onChange={(event) => setHelper(event.target.value)} placeholder="Ex: Itens aguardando retorno" />
+        </label>
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary-button">
+            <CheckCircle2 size={18} />
+            {area ? 'Salvar area' : 'Criar area'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function ConfirmDialog({ dialog, onClose }) {
+  function confirm() {
+    dialog.onConfirm();
+    onClose();
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <header>
+          <h2 id="confirm-title">{dialog.title}</h2>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+        <p>{dialog.message}</p>
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="button" className={`primary-button ${dialog.tone === 'danger' ? 'danger-button' : ''}`} onClick={confirm}>
+            {dialog.confirmLabel || 'Confirmar'}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function CalendarView({ tasks, areas, onEditTask }) {
+  const areaById = Object.fromEntries(areas.map((area) => [area.id, area]));
+  const groupedTasks = tasks.reduce((groups, task) => {
+    const key = task.dueDate;
+    groups[key] = groups[key] || [];
+    groups[key].push(task);
+    return groups;
+  }, {});
+  const dates = Object.keys(groupedTasks).sort();
+
+  return (
+    <section className="calendar-view" aria-label="Calendario de tarefas">
+      {dates.length === 0 ? (
+        <div className="calendar-empty">
+          <Calendar size={28} />
+          <p>Nenhuma tarefa com vencimento.</p>
+        </div>
+      ) : (
+        dates.map((date) => {
+          const dueStatus = getDueStatus(date);
+          return (
+            <article key={date} className={`calendar-day ${dueStatus?.type || 'scheduled'}`}>
+              <header>
+                <div>
+                  <strong>{date}</strong>
+                  <span>{dueStatus?.label || 'Agendada'}</span>
+                </div>
+                <small>{groupedTasks[date].length} tarefas</small>
+              </header>
+              <div className="calendar-task-list">
+                {groupedTasks[date].map((task) => (
+                  <button key={task.id} type="button" className={`calendar-task ${task.priority}`} onClick={() => onEditTask(task)}>
+                    <span>{task.title}</span>
+                    <small>{areaById[task.columnId]?.title || 'Area'}</small>
+                  </button>
+                ))}
+              </div>
+            </article>
+          );
+        })
+      )}
+    </section>
+  );
+}
+
+function ToastList({ toasts, onDismiss }) {
+  return (
+    <div className="toast-stack" aria-live="polite" aria-label="Notificacoes">
+      {toasts.map((toast) => (
+        <button key={toast.id} type="button" className={`toast ${toast.tone}`} onClick={() => onDismiss(toast.id)}>
+          {toast.message}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
