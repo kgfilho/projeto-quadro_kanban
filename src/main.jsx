@@ -480,6 +480,8 @@ function App() {
     done: doneAreaIds.reduce((total, areaId) => total + (board[areaId] || []).length, 0),
   };
   const donePercent = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
+  const currentProjectLabel = selectedProject ? `${selectedProject.name} · ${selectedProject.role}` : 'Selecione um projeto';
+  const currentWorkspaceLabel = selectedWorkspace?.name || 'Workspace';
 
   function saveTask(taskData) {
     if (!canEditBoard) return;
@@ -711,8 +713,8 @@ function App() {
     try {
       await logoutUser();
     } finally {
-        setUser(null);
-        setAuthStatus('unauthenticated');
+      setUser(null);
+      setAuthStatus('unauthenticated');
       setWorkspaces([]);
       setProjects([]);
       setMembers([]);
@@ -828,97 +830,70 @@ function App() {
             <ClipboardList size={24} />
           </span>
           <div>
-            <p className="eyebrow">{selectedWorkspace?.name || 'Workspace'}</p>
+            <p className="eyebrow">{currentWorkspaceLabel}</p>
             <h1>Chronos</h1>
+            <span className="brand-subtitle">{currentProjectLabel}</span>
           </div>
         </div>
 
-        <div className="toolbar">
+        <div className="top-meta">
           <span className={`api-status ${apiStatus}`}>{apiStatus === 'online' ? 'API online' : apiStatus === 'offline' ? 'API offline' : 'Conectando API'}</span>
           <span className={`api-status realtime ${realtimeStatus}`}>
             {realtimeStatus === 'online' ? 'Tempo real' : realtimeStatus === 'offline' ? 'Sem tempo real' : realtimeStatus === 'connecting' ? 'Conectando realtime' : 'Realtime ocioso'}
           </span>
-          <label className="search-field">
-            <Search size={18} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />
-          </label>
-          <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} aria-label="Filtrar por prioridade">
-            <option value="all">Todas</option>
-            {priorities.map((priority) => (
-              <option key={priority.id} value={priority.id}>
-                {priority.label}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-          <button type="button" className="icon-button" onClick={() => fileInputRef.current.click()} aria-label="Importar quadro" disabled={!canEditBoard}>
-            <Upload size={18} />
-          </button>
-          <button type="button" className="icon-button" onClick={exportBoard} aria-label="Exportar quadro">
-            <Download size={18} />
-          </button>
           <span className="user-chip">
             <User size={16} />
             {user?.name || user?.email}
           </span>
+          <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <button type="button" className="icon-button" onClick={handleLogout} aria-label="Sair">
             <LogOut size={18} />
           </button>
-          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId || !canEditBoard}>
-            <Plus size={18} />
-            Nova tarefa
-          </button>
-          <input ref={fileInputRef} type="file" accept=".json" onChange={importBoard} hidden />
         </div>
       </header>
 
       <section className="project-strip" aria-label="Workspace e projeto atual">
-        <label>
-          <Users size={17} />
-          <select value={selectedWorkspaceId} onChange={(event) => handleWorkspaceChange(event.target.value)} aria-label="Selecionar workspace">
-            {workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'workspace' })}>
-          <Plus size={17} />
-          Workspace
-        </button>
-        <button type="button" className="secondary-button" onClick={() => setTeamModalOpen(true)} disabled={!selectedWorkspaceId}>
-          <Users size={17} />
-          Equipe
-        </button>
-        <label>
-          <FolderKanban size={17} />
-          <select value={selectedProjectId} onChange={(event) => handleProjectChange(event.target.value)} aria-label="Selecionar projeto" disabled={!projects.length}>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'project' })} disabled={!selectedWorkspaceId}>
-          <Plus size={17} />
-          Projeto
-        </button>
-        <strong>{selectedProject ? `${selectedProject.name} - ${selectedProject.role}` : 'Crie um projeto para comecar'}</strong>
+        <div className="context-selectors">
+          <label>
+            <span>Workspace</span>
+            <select value={selectedWorkspaceId} onChange={(event) => handleWorkspaceChange(event.target.value)} aria-label="Selecionar workspace">
+              {workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Projeto</span>
+            <select value={selectedProjectId} onChange={(event) => handleProjectChange(event.target.value)} aria-label="Selecionar projeto" disabled={!projects.length}>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="context-actions">
+          <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'workspace' })}>
+            <Plus size={17} />
+            Workspace
+          </button>
+          <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'project' })} disabled={!selectedWorkspaceId}>
+            <Plus size={17} />
+            Projeto
+          </button>
+          <button type="button" className="secondary-button" onClick={() => setTeamModalOpen(true)} disabled={!selectedWorkspaceId}>
+            <Users size={17} />
+            Equipe
+          </button>
+        </div>
       </section>
 
-      <section className="stats-row" aria-label="Resumo do quadro">
-        <StatCard label="Tarefas" value={stats.total} icon={ClipboardList} tone="blue" />
-        <StatCard label="Alta prioridade" value={stats.urgent} icon={TimerReset} tone="red" />
-        <StatCard label="Atrasadas" value={stats.overdue} icon={TimerReset} tone="red" />
-        <StatCard label="Vencem em breve" value={stats.dueSoon} icon={Calendar} tone="amber" />
-        <StatCard label="Concluidas" value={`${donePercent}%`} detail={`${stats.done} de ${stats.total || 0}`} icon={CheckCircle2} tone="green" />
-      </section>
-
-      <section className="board-actions" aria-label="Acoes das areas">
+      <section className="workspace-bar" aria-label="Resumo e filtros">
         <div className="view-switcher" role="tablist" aria-label="Visualizacao">
           <button type="button" className={activeView === 'board' ? 'active' : ''} onClick={() => setActiveView('board')}>
             Quadro
@@ -930,10 +905,45 @@ function App() {
             Atividade
           </button>
         </div>
-        <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
-          <SquareKanban size={18} />
-          Nova area
-        </button>
+        <div className="quick-stats" aria-label="Indicadores do projeto">
+          <StatCard label="Tarefas" value={stats.total} icon={ClipboardList} tone="blue" />
+          <StatCard label="Urgentes" value={stats.urgent} icon={TimerReset} tone="red" />
+          <StatCard label="Atrasadas" value={stats.overdue} icon={TimerReset} tone="red" />
+          <StatCard label="Em breve" value={stats.dueSoon} icon={Calendar} tone="amber" />
+          <StatCard label="Concluidas" value={`${donePercent}%`} detail={`${stats.done}/${stats.total || 0}`} icon={CheckCircle2} tone="green" />
+        </div>
+      </section>
+
+      <section className="board-toolbar" aria-label="Ferramentas do quadro">
+        <label className="search-field">
+          <Search size={18} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />
+        </label>
+        <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} aria-label="Filtrar por prioridade">
+          <option value="all">Todas as prioridades</option>
+          {priorities.map((priority) => (
+            <option key={priority.id} value={priority.id}>
+              {priority.label}
+            </option>
+          ))}
+        </select>
+        <div className="toolbar-actions">
+          <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
+            <SquareKanban size={18} />
+            Nova area
+          </button>
+          <button type="button" className="icon-button" onClick={() => fileInputRef.current.click()} aria-label="Importar quadro" disabled={!canEditBoard}>
+            <Upload size={18} />
+          </button>
+          <button type="button" className="icon-button" onClick={exportBoard} aria-label="Exportar quadro">
+            <Download size={18} />
+          </button>
+          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId || !canEditBoard}>
+            <Plus size={18} />
+            Nova tarefa
+          </button>
+        </div>
+        <input ref={fileInputRef} type="file" accept=".json" onChange={importBoard} hidden />
       </section>
 
       {activeView === 'board' ? (
