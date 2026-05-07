@@ -32,12 +32,16 @@ import {
   createWorkspace,
   getCurrentUser,
   getProjectBoard,
+  inviteWorkspaceMember,
   listProjects,
+  listWorkspaceMembers,
   listWorkspaces,
   loginUser,
   logoutUser,
   registerUser,
+  removeWorkspaceMember,
   saveProjectBoard,
+  updateWorkspaceMember,
 } from './api.js';
 import './styles.css';
 
@@ -51,6 +55,12 @@ const priorities = [
   { id: 'prioridade-baixa', label: 'Baixa', rank: 3 },
   { id: 'prioridade-media', label: 'Media', rank: 2 },
   { id: 'prioridade-alta', label: 'Alta', rank: 1 },
+];
+
+const memberRoles = [
+  { id: 'admin', label: 'Admin' },
+  { id: 'editor', label: 'Editor' },
+  { id: 'viewer', label: 'Viewer' },
 ];
 
 const emptyBoard = {
@@ -178,8 +188,10 @@ function App() {
   const [user, setUser] = React.useState(null);
   const [workspaces, setWorkspaces] = React.useState([]);
   const [projects, setProjects] = React.useState([]);
+  const [members, setMembers] = React.useState([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState('');
   const [selectedProjectId, setSelectedProjectId] = React.useState('');
+  const [teamModalOpen, setTeamModalOpen] = React.useState(false);
   const [activeTask, setActiveTask] = React.useState(null);
   const fileInputRef = React.useRef(null);
   const hydratedRef = React.useRef(false);
@@ -204,6 +216,16 @@ function App() {
     hydratedRef.current = true;
   }, []);
 
+  const loadMembers = React.useCallback(async (workspaceId) => {
+    if (!workspaceId) {
+      setMembers([]);
+      return [];
+    }
+    const memberItems = await listWorkspaceMembers(workspaceId);
+    setMembers(memberItems);
+    return memberItems;
+  }, []);
+
   const loadWorkspaceData = React.useCallback(async ({ preferredWorkspaceId, preferredProjectId } = {}) => {
     const workspaceItems = await listWorkspaces();
     setWorkspaces(workspaceItems);
@@ -213,12 +235,15 @@ function App() {
 
     if (!workspaceId) {
       setProjects([]);
+      setMembers([]);
       setSelectedProjectId('');
       setAreas(defaultAreas);
       setBoard(normalizeBoard(emptyBoard, defaultAreas));
       hydratedRef.current = true;
       return;
     }
+
+    await loadMembers(workspaceId);
 
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
@@ -233,7 +258,7 @@ function App() {
     }
 
     await loadProjectBoard(projectId);
-  }, [loadProjectBoard]);
+  }, [loadMembers, loadProjectBoard]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -269,8 +294,13 @@ function App() {
     setBoard((currentBoard) => normalizeBoard(currentBoard, areas));
   }, [areas]);
 
+  const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const canEditBoard = ['owner', 'admin', 'editor'].includes(selectedProject?.role);
+  const canManageTeam = ['owner', 'admin'].includes(selectedWorkspace?.role);
+
   React.useEffect(() => {
-    if (!hydratedRef.current || apiStatus !== 'online' || authStatus !== 'authenticated' || !selectedProjectId) return undefined;
+    if (!hydratedRef.current || apiStatus !== 'online' || authStatus !== 'authenticated' || !selectedProjectId || !canEditBoard) return undefined;
 
     const timeoutId = window.setTimeout(async () => {
       try {
@@ -286,7 +316,7 @@ function App() {
     }, 450);
 
     return () => window.clearTimeout(timeoutId);
-  }, [areas, board, apiStatus, authStatus, selectedProjectId, showToast]);
+  }, [areas, board, apiStatus, authStatus, selectedProjectId, canEditBoard, showToast]);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -301,8 +331,6 @@ function App() {
     .filter((area) => area.id === 'done' || area.title.toLowerCase().includes('concluido'))
     .map((area) => area.id);
   const defaultColumnId = areas[0]?.id || 'todo';
-  const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
-  const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const stats = {
     total: allTasks.length,
     urgent: allTasks.filter((task) => task.priority === 'prioridade-alta').length,
@@ -313,6 +341,7 @@ function App() {
   const donePercent = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
 
   function saveTask(taskData) {
+    if (!canEditBoard) return;
     const normalizedTask = normalizeTask(taskData);
     setBoard((currentBoard) => {
       const nextBoard = normalizeBoard(currentBoard, areas);
@@ -335,6 +364,7 @@ function App() {
   }
 
   function toggleChecklistItem(taskId, itemId) {
+    if (!canEditBoard) return;
     setBoard((currentBoard) =>
       Object.fromEntries(
         areas.map((area) => [
@@ -353,6 +383,7 @@ function App() {
   }
 
   function deleteTask(taskId) {
+    if (!canEditBoard) return;
     const task = allTasks.find((item) => item.id === taskId);
     setConfirmDialog({
       title: 'Excluir tarefa',
@@ -369,6 +400,7 @@ function App() {
   }
 
   function saveArea(areaData) {
+    if (!canEditBoard) return;
     const title = areaData.title.trim();
     if (!title) return;
     if (areaData.id) {
@@ -397,6 +429,7 @@ function App() {
   }
 
   function deleteArea(areaId) {
+    if (!canEditBoard) return;
     const area = areas.find((item) => item.id === areaId);
     if (!area || area.locked) return;
     if ((board[areaId] || []).length > 0) {
@@ -420,6 +453,7 @@ function App() {
   }
 
   function moveArea(areaId, direction) {
+    if (!canEditBoard) return;
     const currentIndex = areas.findIndex((area) => area.id === areaId);
     const targetIndex = currentIndex + direction;
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= areas.length) return;
@@ -427,11 +461,13 @@ function App() {
   }
 
   function handleDragStart(event) {
+    if (!canEditBoard) return;
     const task = allTasks.find((item) => item.id === event.active.id);
     setActiveTask(task || null);
   }
 
   function handleDragEnd(event) {
+    if (!canEditBoard) return;
     const { active, over } = event;
     setActiveTask(null);
     if (!over) return;
@@ -487,6 +523,7 @@ function App() {
   }
 
   function importBoard(event) {
+    if (!canEditBoard) return;
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -532,11 +569,12 @@ function App() {
     try {
       await logoutUser();
     } finally {
-      setUser(null);
-      setAuthStatus('unauthenticated');
-      setWorkspaces([]);
-      setProjects([]);
-      setSelectedWorkspaceId('');
+        setUser(null);
+        setAuthStatus('unauthenticated');
+        setWorkspaces([]);
+        setProjects([]);
+        setMembers([]);
+        setSelectedWorkspaceId('');
       setSelectedProjectId('');
       setAreas(defaultAreas);
       setBoard(normalizeBoard(emptyBoard, defaultAreas));
@@ -547,6 +585,7 @@ function App() {
   async function handleWorkspaceChange(workspaceId) {
     setSelectedWorkspaceId(workspaceId);
     setSelectedProjectId('');
+    await loadMembers(workspaceId);
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
     const projectId = projectItems[0]?.id || '';
@@ -581,6 +620,34 @@ function App() {
       setNameModal(null);
       showToast('Projeto criado.');
     }
+  }
+
+  async function inviteMember(payload) {
+    await inviteWorkspaceMember(selectedWorkspaceId, payload);
+    await loadMembers(selectedWorkspaceId);
+    await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: selectedProjectId });
+    showToast('Membro adicionado ao workspace.');
+  }
+
+  async function updateMemberRole(userId, role) {
+    await updateWorkspaceMember(selectedWorkspaceId, userId, { role });
+    await loadMembers(selectedWorkspaceId);
+    await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: selectedProjectId });
+    showToast('Permissao atualizada.');
+  }
+
+  function confirmRemoveMember(member) {
+    setConfirmDialog({
+      title: 'Remover membro',
+      message: `Remover ${member.user.name} deste workspace?`,
+      confirmLabel: 'Remover',
+      tone: 'danger',
+      onConfirm: async () => {
+        await removeWorkspaceMember(selectedWorkspaceId, member.user.id);
+        await loadMembers(selectedWorkspaceId);
+        showToast('Membro removido.', 'danger');
+      },
+    });
   }
 
   if (authStatus === 'checking') {
@@ -625,7 +692,7 @@ function App() {
           <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button type="button" className="icon-button" onClick={() => fileInputRef.current.click()} aria-label="Importar quadro">
+          <button type="button" className="icon-button" onClick={() => fileInputRef.current.click()} aria-label="Importar quadro" disabled={!canEditBoard}>
             <Upload size={18} />
           </button>
           <button type="button" className="icon-button" onClick={exportBoard} aria-label="Exportar quadro">
@@ -638,7 +705,7 @@ function App() {
           <button type="button" className="icon-button" onClick={handleLogout} aria-label="Sair">
             <LogOut size={18} />
           </button>
-          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId}>
+          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId || !canEditBoard}>
             <Plus size={18} />
             Nova tarefa
           </button>
@@ -661,6 +728,10 @@ function App() {
           <Plus size={17} />
           Workspace
         </button>
+        <button type="button" className="secondary-button" onClick={() => setTeamModalOpen(true)} disabled={!selectedWorkspaceId}>
+          <Users size={17} />
+          Equipe
+        </button>
         <label>
           <FolderKanban size={17} />
           <select value={selectedProjectId} onChange={(event) => handleProjectChange(event.target.value)} aria-label="Selecionar projeto" disabled={!projects.length}>
@@ -675,7 +746,7 @@ function App() {
           <Plus size={17} />
           Projeto
         </button>
-        <strong>{selectedProject?.name || 'Crie um projeto para comecar'}</strong>
+        <strong>{selectedProject ? `${selectedProject.name} - ${selectedProject.role}` : 'Crie um projeto para comecar'}</strong>
       </section>
 
       <section className="stats-row" aria-label="Resumo do quadro">
@@ -695,7 +766,7 @@ function App() {
             Calendario
           </button>
         </div>
-        <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId}>
+        <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
           <SquareKanban size={18} />
           Nova area
         </button>
@@ -713,6 +784,7 @@ function App() {
                 tasks={board[area.id] || []}
                 query={query}
                 priorityFilter={priorityFilter}
+                canEdit={canEditBoard}
                 onAddTask={() => setModalTask({ columnId: area.id })}
                 onEditTask={(task) => setModalTask({ ...task, columnId: area.id })}
                 onDeleteTask={deleteTask}
@@ -726,7 +798,7 @@ function App() {
           <DragOverlay>{activeTask ? <TaskCardView task={activeTask} isOverlay /> : null}</DragOverlay>
         </DndContext>
       ) : (
-        <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => setModalTask(task)} />
+        <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => (canEditBoard ? setModalTask(task) : null)} />
       )}
 
       {modalTask ? <TaskModal task={modalTask} areas={areas} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
@@ -738,6 +810,18 @@ function App() {
           placeholder={nameModal.type === 'workspace' ? 'Ex: Equipe Produto' : 'Ex: Site institucional'}
           onClose={() => setNameModal(null)}
           onSave={saveNameModal}
+        />
+      ) : null}
+      {teamModalOpen ? (
+        <TeamModal
+          currentUserId={user?.id}
+          canManage={canManageTeam}
+          members={members}
+          workspaceName={selectedWorkspace?.name || 'Workspace'}
+          onClose={() => setTeamModalOpen(false)}
+          onInvite={inviteMember}
+          onUpdateRole={updateMemberRole}
+          onRemoveMember={confirmRemoveMember}
         />
       ) : null}
       {confirmDialog ? <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} /> : null}
@@ -888,6 +972,7 @@ function KanbanColumn({
   tasks,
   query,
   priorityFilter,
+  canEdit,
   onAddTask,
   onEditTask,
   onDeleteTask,
@@ -918,16 +1003,16 @@ function KanbanColumn({
           </div>
         </div>
         <strong className="column-count">{visibleTasks.length}</strong>
-        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, -1)} disabled={areaIndex === 0} aria-label={`Mover ${area.title} para esquerda`}>
+        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, -1)} disabled={!canEdit || areaIndex === 0} aria-label={`Mover ${area.title} para esquerda`}>
           <ArrowLeft size={15} />
         </button>
-        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, 1)} disabled={areaIndex === areaCount - 1} aria-label={`Mover ${area.title} para direita`}>
+        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, 1)} disabled={!canEdit || areaIndex === areaCount - 1} aria-label={`Mover ${area.title} para direita`}>
           <ArrowRight size={15} />
         </button>
-        <button type="button" className="icon-button small" onClick={onAddTask} aria-label={`Adicionar em ${area.title}`}>
+        <button type="button" className="icon-button small" onClick={onAddTask} disabled={!canEdit} aria-label={`Adicionar em ${area.title}`}>
           <Plus size={16} />
         </button>
-        {!area.locked ? (
+        {!area.locked && canEdit ? (
           <>
             <button type="button" className="icon-button small" onClick={onEditArea} aria-label={`Editar area ${area.title}`}>
               <Edit3 size={15} />
@@ -945,13 +1030,14 @@ function KanbanColumn({
             <TaskCard
               key={task.id}
               task={task}
+              canEdit={canEdit}
               onEdit={() => onEditTask(task)}
               onDelete={() => onDeleteTask(task.id)}
               onToggleChecklistItem={onToggleChecklistItem}
             />
           ))}
           {visibleTasks.length === 0 ? (
-            <button type="button" className="empty-state" onClick={onAddTask}>
+            <button type="button" className="empty-state" onClick={onAddTask} disabled={!canEdit}>
               <Plus size={18} />
               Nada por aqui
             </button>
@@ -962,7 +1048,7 @@ function KanbanColumn({
   );
 }
 
-function TaskCard({ task, onEdit, onDelete, onToggleChecklistItem }) {
+function TaskCard({ task, canEdit, onEdit, onDelete, onToggleChecklistItem }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -972,6 +1058,7 @@ function TaskCard({ task, onEdit, onDelete, onToggleChecklistItem }) {
   return (
     <TaskCardView
       task={task}
+      canEdit={canEdit}
       onEdit={onEdit}
       onDelete={onDelete}
       onToggleChecklistItem={onToggleChecklistItem}
@@ -983,7 +1070,7 @@ function TaskCard({ task, onEdit, onDelete, onToggleChecklistItem }) {
   );
 }
 
-function TaskCardView({ task, onEdit, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
+function TaskCardView({ task, canEdit = true, onEdit, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
   const priority = priorities.find((item) => item.id === task.priority);
   const dueStatus = getDueStatus(task.dueDate);
   const progress = checklistProgress(task.checklist);
@@ -994,7 +1081,7 @@ function TaskCardView({ task, onEdit, onDelete, onToggleChecklistItem, dragHandl
       style={style}
       className={`task ${task.priority} due-${dueStatus?.type || 'none'} ${isDragging ? 'dragging' : ''} ${isOverlay ? 'drag-overlay' : ''}`}
     >
-      <button type="button" className="drag-handle" {...dragHandleProps} aria-label={`Mover ${task.title}`}>
+      <button type="button" className="drag-handle" {...dragHandleProps} disabled={!canEdit} aria-label={`Mover ${task.title}`}>
         <span />
       </button>
       <h3>{task.title}</h3>
@@ -1019,7 +1106,7 @@ function TaskCardView({ task, onEdit, onDelete, onToggleChecklistItem, dragHandl
             <div className="checklist-items">
               {task.checklist.slice(0, 4).map((item) => (
                 <label key={item.id}>
-                  <input type="checkbox" checked={item.done} onChange={() => onToggleChecklistItem?.(task.id, item.id)} />
+                  <input type="checkbox" checked={item.done} onChange={() => onToggleChecklistItem?.(task.id, item.id)} disabled={!canEdit} />
                   <span>{item.text}</span>
                 </label>
               ))}
@@ -1036,7 +1123,7 @@ function TaskCardView({ task, onEdit, onDelete, onToggleChecklistItem, dragHandl
           </span>
         ) : null}
       </div>
-      {!isOverlay ? <div className="task-actions">
+      {!isOverlay && canEdit ? <div className="task-actions">
         <button type="button" onClick={onEdit} aria-label={`Editar ${task.title}`}>
           <Edit3 size={16} />
         </button>
@@ -1251,10 +1338,119 @@ function NameModal({ title, label, placeholder, onClose, onSave }) {
   );
 }
 
+function TeamModal({ currentUserId, canManage, members, workspaceName, onClose, onInvite, onUpdateRole, onRemoveMember }) {
+  const [form, setForm] = React.useState({ email: '', role: 'viewer' });
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onInvite({ email: form.email.trim(), role: form.role });
+      setForm({ email: '', role: 'viewer' });
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel adicionar o membro.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function changeRole(member, role) {
+    setError('');
+    try {
+      await onUpdateRole(member.user.id, role);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel alterar a permissao.');
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="task-modal team-modal" role="dialog" aria-modal="true" aria-labelledby="team-title">
+        <header>
+          <div>
+            <p className="eyebrow">Equipe</p>
+            <h2 id="team-title">{workspaceName}</h2>
+          </div>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+
+        {canManage ? (
+          <form className="invite-form" onSubmit={submit}>
+            <label>
+              E-mail
+              <input type="email" value={form.email} onChange={(event) => setForm((currentForm) => ({ ...currentForm, email: event.target.value }))} placeholder="pessoa@empresa.com" required />
+            </label>
+            <label>
+              Papel
+              <select value={form.role} onChange={(event) => setForm((currentForm) => ({ ...currentForm, role: event.target.value }))}>
+                {memberRoles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="primary-button" disabled={isSubmitting}>
+              <Plus size={18} />
+              {isSubmitting ? 'Adicionando...' : 'Adicionar'}
+            </button>
+          </form>
+        ) : null}
+
+        {error ? <p className="form-error">{error}</p> : null}
+
+        <div className="member-list">
+          {members.map((member) => {
+            const isSelf = member.user.id === currentUserId;
+            const canEditMember = canManage && member.role !== 'owner' && !isSelf;
+            return (
+              <article key={member.user.id} className="member-row">
+                <span className="member-avatar">{member.user.name.slice(0, 1).toUpperCase()}</span>
+                <div>
+                  <strong>{member.user.name}</strong>
+                  <small>{member.user.email}</small>
+                </div>
+                {canEditMember ? (
+                  <select value={member.role} onChange={(event) => changeRole(member, event.target.value)} aria-label={`Alterar papel de ${member.user.name}`}>
+                    {memberRoles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="role-pill">{member.role}</span>
+                )}
+                {canEditMember ? (
+                  <button type="button" className="icon-button small danger-action" onClick={() => onRemoveMember(member)} aria-label={`Remover ${member.user.name}`}>
+                    <Trash2 size={15} />
+                  </button>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ConfirmDialog({ dialog, onClose }) {
-  function confirm() {
-    dialog.onConfirm();
-    onClose();
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  async function confirm() {
+    setIsSubmitting(true);
+    try {
+      await dialog.onConfirm();
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -1271,8 +1467,8 @@ function ConfirmDialog({ dialog, onClose }) {
           <button type="button" className="secondary-button" onClick={onClose}>
             Cancelar
           </button>
-          <button type="button" className={`primary-button ${dialog.tone === 'danger' ? 'danger-button' : ''}`} onClick={confirm}>
-            {dialog.confirmLabel || 'Confirmar'}
+          <button type="button" className={`primary-button ${dialog.tone === 'danger' ? 'danger-button' : ''}`} onClick={confirm} disabled={isSubmitting}>
+            {isSubmitting ? 'Aguarde...' : dialog.confirmLabel || 'Confirmar'}
           </button>
         </footer>
       </section>

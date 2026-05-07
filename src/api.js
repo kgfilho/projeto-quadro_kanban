@@ -57,6 +57,30 @@ export function createWorkspace(payload) {
   }).then((data) => data.workspace);
 }
 
+export function listWorkspaceMembers(workspaceId) {
+  return request(`/api/workspaces/${workspaceId}/members`).then((data) => data.members || []);
+}
+
+export function inviteWorkspaceMember(workspaceId, payload) {
+  return request(`/api/workspaces/${workspaceId}/members`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }).then((data) => data.member);
+}
+
+export function updateWorkspaceMember(workspaceId, userId, payload) {
+  return request(`/api/workspaces/${workspaceId}/members/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }).then((data) => data.member);
+}
+
+export function removeWorkspaceMember(workspaceId, userId) {
+  return request(`/api/workspaces/${workspaceId}/members/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function listProjects(workspaceId) {
   return request(`/api/workspaces/${workspaceId}/projects`).then((data) => data.projects || []);
 }
