@@ -13,6 +13,8 @@ import {
   ClipboardList,
   Download,
   Edit3,
+  FolderKanban,
+  LogOut,
   Moon,
   Plus,
   Search,
@@ -21,9 +23,22 @@ import {
   Sun,
   Trash2,
   Upload,
+  User,
+  Users,
   X,
 } from 'lucide-react';
-import { getBoardState, saveBoardState } from './api.js';
+import {
+  createProject,
+  createWorkspace,
+  getCurrentUser,
+  getProjectBoard,
+  listProjects,
+  listWorkspaces,
+  loginUser,
+  logoutUser,
+  registerUser,
+  saveProjectBoard,
+} from './api.js';
 import './styles.css';
 
 const defaultAreas = [
@@ -66,12 +81,6 @@ function normalizeAreas(areas) {
         locked: defaultArea?.locked || false,
       };
     });
-
-  defaultAreas.forEach((area) => {
-    if (!normalized.some((item) => item.id === area.id)) {
-      normalized.push(area);
-    }
-  });
 
   return normalized.map((area) => ({
       id: area.id,
@@ -153,88 +162,131 @@ function checklistProgress(checklist = []) {
 }
 
 function App() {
-  const [areas, setAreas] = React.useState(() => {
-    const savedAreas = localStorage.getItem('chronosAreas');
-    try {
-      return normalizeAreas(savedAreas ? JSON.parse(savedAreas) : defaultAreas);
-    } catch {
-      return defaultAreas;
-    }
-  });
-  const [board, setBoard] = React.useState(() => {
-    try {
-      const savedAreas = normalizeAreas(JSON.parse(localStorage.getItem('chronosAreas') || 'null'));
-      const savedBoard = localStorage.getItem('kanbanBoard');
-      return savedBoard ? normalizeBoard(JSON.parse(savedBoard), savedAreas) : normalizeBoard(emptyBoard, savedAreas);
-    } catch {
-      return emptyBoard;
-    }
-  });
+  const [areas, setAreas] = React.useState(defaultAreas);
+  const [board, setBoard] = React.useState(() => normalizeBoard(emptyBoard, defaultAreas));
   const [theme, setTheme] = React.useState(() => localStorage.getItem('theme') || 'light');
   const [query, setQuery] = React.useState('');
   const [priorityFilter, setPriorityFilter] = React.useState('all');
   const [activeView, setActiveView] = React.useState('board');
   const [modalTask, setModalTask] = React.useState(null);
   const [areaModal, setAreaModal] = React.useState(null);
+  const [nameModal, setNameModal] = React.useState(null);
   const [confirmDialog, setConfirmDialog] = React.useState(null);
   const [toasts, setToasts] = React.useState([]);
   const [apiStatus, setApiStatus] = React.useState('checking');
+  const [authStatus, setAuthStatus] = React.useState('checking');
+  const [user, setUser] = React.useState(null);
+  const [workspaces, setWorkspaces] = React.useState([]);
+  const [projects, setProjects] = React.useState([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState('');
+  const [selectedProjectId, setSelectedProjectId] = React.useState('');
   const [activeTask, setActiveTask] = React.useState(null);
   const fileInputRef = React.useRef(null);
   const hydratedRef = React.useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  const showToast = React.useCallback((message, tone = 'success') => {
+    const id = `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((currentToasts) => [...currentToasts, { id, message, tone }]);
+    window.setTimeout(() => {
+      setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id));
+    }, 3200);
+  }, []);
+
+  const loadProjectBoard = React.useCallback(async (projectId) => {
+    hydratedRef.current = false;
+    const remoteState = await getProjectBoard(projectId);
+    const remoteAreas = normalizeAreas(remoteState.areas);
+    setAreas(remoteAreas);
+    setBoard(normalizeBoard(remoteState.board, remoteAreas));
+    setSelectedProjectId(projectId);
+    setApiStatus('online');
+    hydratedRef.current = true;
+  }, []);
+
+  const loadWorkspaceData = React.useCallback(async ({ preferredWorkspaceId, preferredProjectId } = {}) => {
+    const workspaceItems = await listWorkspaces();
+    setWorkspaces(workspaceItems);
+
+    const workspaceId = preferredWorkspaceId || workspaceItems[0]?.id || '';
+    setSelectedWorkspaceId(workspaceId);
+
+    if (!workspaceId) {
+      setProjects([]);
+      setSelectedProjectId('');
+      setAreas(defaultAreas);
+      setBoard(normalizeBoard(emptyBoard, defaultAreas));
+      hydratedRef.current = true;
+      return;
+    }
+
+    const projectItems = await listProjects(workspaceId);
+    setProjects(projectItems);
+    const projectId = preferredProjectId || projectItems[0]?.id || '';
+
+    if (!projectId) {
+      setSelectedProjectId('');
+      setAreas(defaultAreas);
+      setBoard(normalizeBoard(emptyBoard, defaultAreas));
+      hydratedRef.current = true;
+      return;
+    }
+
+    await loadProjectBoard(projectId);
+  }, [loadProjectBoard]);
+
   React.useEffect(() => {
     let cancelled = false;
 
-    async function loadRemoteBoard() {
+    async function bootstrapSession() {
       try {
-        const remoteState = await getBoardState();
+        const session = await getCurrentUser();
         if (cancelled) return;
-        const remoteAreas = normalizeAreas(remoteState.areas);
-        setAreas(remoteAreas);
-        setBoard(normalizeBoard(remoteState.board, remoteAreas));
+        setUser(session.user);
+        setAuthStatus('authenticated');
         setApiStatus('online');
-        hydratedRef.current = true;
-        showToast('API conectada.');
-      } catch {
+        await loadWorkspaceData();
+      } catch (error) {
         if (cancelled) return;
-        setApiStatus('offline');
-        hydratedRef.current = true;
-        showToast('API offline. Usando dados locais.', 'warning');
+        if (error.status === 401) {
+          setAuthStatus('unauthenticated');
+          setApiStatus('online');
+        } else {
+          setAuthStatus('unavailable');
+          setApiStatus('offline');
+        }
       }
     }
 
-    loadRemoteBoard();
+    bootstrapSession();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadWorkspaceData]);
 
   React.useEffect(() => {
-    localStorage.setItem('chronosAreas', JSON.stringify(areas));
     setBoard((currentBoard) => normalizeBoard(currentBoard, areas));
   }, [areas]);
 
   React.useEffect(() => {
-    localStorage.setItem('kanbanBoard', JSON.stringify(board));
-  }, [board]);
-
-  React.useEffect(() => {
-    if (!hydratedRef.current || apiStatus !== 'online') return undefined;
+    if (!hydratedRef.current || apiStatus !== 'online' || authStatus !== 'authenticated' || !selectedProjectId) return undefined;
 
     const timeoutId = window.setTimeout(async () => {
       try {
-        await saveBoardState({ areas, board });
-      } catch {
+        await saveProjectBoard(selectedProjectId, { areas, board });
+      } catch (error) {
+        if (error.status === 401) {
+          setAuthStatus('unauthenticated');
+          setUser(null);
+        }
         setApiStatus('offline');
         showToast('Nao foi possivel sincronizar com a API.', 'warning');
       }
     }, 450);
 
     return () => window.clearTimeout(timeoutId);
-  }, [areas, board, apiStatus]);
+  }, [areas, board, apiStatus, authStatus, selectedProjectId, showToast]);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -245,22 +297,20 @@ function App() {
   const calendarTasks = allTasks
     .filter((task) => task.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const doneAreaIds = areas
+    .filter((area) => area.id === 'done' || area.title.toLowerCase().includes('concluido'))
+    .map((area) => area.id);
+  const defaultColumnId = areas[0]?.id || 'todo';
+  const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const stats = {
     total: allTasks.length,
     urgent: allTasks.filter((task) => task.priority === 'prioridade-alta').length,
     dueSoon: allTasks.filter((task) => isDueSoon(task.dueDate)).length,
     overdue: allTasks.filter((task) => getDueStatus(task.dueDate)?.type === 'overdue').length,
-    done: board.done.length,
+    done: doneAreaIds.reduce((total, areaId) => total + (board[areaId] || []).length, 0),
   };
   const donePercent = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
-
-  function showToast(message, tone = 'success') {
-    const id = `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setToasts((currentToasts) => [...currentToasts, { id, message, tone }]);
-    window.setTimeout(() => {
-      setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id));
-    }, 3200);
-  }
 
   function saveTask(taskData) {
     const normalizedTask = normalizeTask(taskData);
@@ -468,6 +518,83 @@ function App() {
     reader.readAsText(file);
   }
 
+  async function handleAuthSubmit(mode, payload) {
+    const action = mode === 'register' ? registerUser : loginUser;
+    const session = await action(payload);
+    setUser(session.user);
+    setAuthStatus('authenticated');
+    setApiStatus('online');
+    await loadWorkspaceData();
+    showToast(mode === 'register' ? 'Conta criada.' : 'Sessao iniciada.');
+  }
+
+  async function handleLogout() {
+    try {
+      await logoutUser();
+    } finally {
+      setUser(null);
+      setAuthStatus('unauthenticated');
+      setWorkspaces([]);
+      setProjects([]);
+      setSelectedWorkspaceId('');
+      setSelectedProjectId('');
+      setAreas(defaultAreas);
+      setBoard(normalizeBoard(emptyBoard, defaultAreas));
+      hydratedRef.current = false;
+    }
+  }
+
+  async function handleWorkspaceChange(workspaceId) {
+    setSelectedWorkspaceId(workspaceId);
+    setSelectedProjectId('');
+    const projectItems = await listProjects(workspaceId);
+    setProjects(projectItems);
+    const projectId = projectItems[0]?.id || '';
+    if (projectId) {
+      await loadProjectBoard(projectId);
+    } else {
+      setAreas(defaultAreas);
+      setBoard(normalizeBoard(emptyBoard, defaultAreas));
+    }
+  }
+
+  async function handleProjectChange(projectId) {
+    if (!projectId) return;
+    await loadProjectBoard(projectId);
+  }
+
+  async function saveNameModal(name) {
+    const cleanName = name.trim();
+    if (!cleanName) return;
+
+    if (nameModal?.type === 'workspace') {
+      const workspace = await createWorkspace({ name: cleanName });
+      await loadWorkspaceData({ preferredWorkspaceId: workspace.id });
+      setNameModal(null);
+      showToast('Workspace criado.');
+      return;
+    }
+
+    if (nameModal?.type === 'project' && selectedWorkspaceId) {
+      const project = await createProject(selectedWorkspaceId, { name: cleanName });
+      await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: project.id });
+      setNameModal(null);
+      showToast('Projeto criado.');
+    }
+  }
+
+  if (authStatus === 'checking') {
+    return <LoadingScreen theme={theme} setTheme={setTheme} message="Verificando sessao segura" />;
+  }
+
+  if (authStatus === 'unavailable') {
+    return <UnavailableScreen theme={theme} setTheme={setTheme} />;
+  }
+
+  if (authStatus === 'unauthenticated') {
+    return <AuthScreen theme={theme} setTheme={setTheme} onSubmit={handleAuthSubmit} />;
+  }
+
   return (
     <main className="app-shell">
       <header className="top-panel">
@@ -476,7 +603,7 @@ function App() {
             <ClipboardList size={24} />
           </span>
           <div>
-            <p className="eyebrow">Quadro pessoal</p>
+            <p className="eyebrow">{selectedWorkspace?.name || 'Workspace'}</p>
             <h1>Chronos</h1>
           </div>
         </div>
@@ -504,13 +631,52 @@ function App() {
           <button type="button" className="icon-button" onClick={exportBoard} aria-label="Exportar quadro">
             <Download size={18} />
           </button>
-          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: 'todo' })}>
+          <span className="user-chip">
+            <User size={16} />
+            {user?.name || user?.email}
+          </span>
+          <button type="button" className="icon-button" onClick={handleLogout} aria-label="Sair">
+            <LogOut size={18} />
+          </button>
+          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId}>
             <Plus size={18} />
             Nova tarefa
           </button>
           <input ref={fileInputRef} type="file" accept=".json" onChange={importBoard} hidden />
         </div>
       </header>
+
+      <section className="project-strip" aria-label="Workspace e projeto atual">
+        <label>
+          <Users size={17} />
+          <select value={selectedWorkspaceId} onChange={(event) => handleWorkspaceChange(event.target.value)} aria-label="Selecionar workspace">
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'workspace' })}>
+          <Plus size={17} />
+          Workspace
+        </button>
+        <label>
+          <FolderKanban size={17} />
+          <select value={selectedProjectId} onChange={(event) => handleProjectChange(event.target.value)} aria-label="Selecionar projeto" disabled={!projects.length}>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'project' })} disabled={!selectedWorkspaceId}>
+          <Plus size={17} />
+          Projeto
+        </button>
+        <strong>{selectedProject?.name || 'Crie um projeto para comecar'}</strong>
+      </section>
 
       <section className="stats-row" aria-label="Resumo do quadro">
         <StatCard label="Tarefas" value={stats.total} icon={ClipboardList} tone="blue" />
@@ -529,7 +695,7 @@ function App() {
             Calendario
           </button>
         </div>
-        <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })}>
+        <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId}>
           <SquareKanban size={18} />
           Nova area
         </button>
@@ -565,8 +731,133 @@ function App() {
 
       {modalTask ? <TaskModal task={modalTask} areas={areas} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
       {areaModal ? <AreaModal area={areaModal.area} onClose={() => setAreaModal(null)} onSave={saveArea} /> : null}
+      {nameModal ? (
+        <NameModal
+          title={nameModal.type === 'workspace' ? 'Novo workspace' : 'Novo projeto'}
+          label={nameModal.type === 'workspace' ? 'Nome do workspace' : 'Nome do projeto'}
+          placeholder={nameModal.type === 'workspace' ? 'Ex: Equipe Produto' : 'Ex: Site institucional'}
+          onClose={() => setNameModal(null)}
+          onSave={saveNameModal}
+        />
+      ) : null}
       {confirmDialog ? <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} /> : null}
       <ToastList toasts={toasts} onDismiss={(id) => setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id))} />
+    </main>
+  );
+}
+
+function LoadingScreen({ theme, setTheme, message }) {
+  return (
+    <main className="auth-shell">
+      <button type="button" className="icon-button auth-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
+        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+      <section className="auth-card compact">
+        <span className="brand-mark">
+          <ClipboardList size={24} />
+        </span>
+        <div>
+          <p className="eyebrow">Chronos</p>
+          <h1>{message}</h1>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function UnavailableScreen({ theme, setTheme }) {
+  return (
+    <main className="auth-shell">
+      <button type="button" className="icon-button auth-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
+        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+      <section className="auth-card compact">
+        <span className="brand-mark">
+          <ClipboardList size={24} />
+        </span>
+        <div>
+          <p className="eyebrow">API offline</p>
+          <h1>Nao foi possivel conectar</h1>
+          <p>Inicie a Chronos API em `http://127.0.0.1:3333` para acessar os projetos.</p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AuthScreen({ theme, setTheme, onSubmit }) {
+  const [mode, setMode] = React.useState('login');
+  const [form, setForm] = React.useState({ name: '', email: '', password: '' });
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  function updateField(field, value) {
+    setForm((currentForm) => ({ ...currentForm, [field]: value }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onSubmit(mode, {
+        ...(mode === 'register' ? { name: form.name.trim() } : {}),
+        email: form.email.trim(),
+        password: form.password,
+      });
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel entrar.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <button type="button" className="icon-button auth-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
+        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+      <section className="auth-card">
+        <div className="auth-brand">
+          <span className="brand-mark">
+            <ClipboardList size={24} />
+          </span>
+          <div>
+            <p className="eyebrow">Chronos</p>
+            <h1>{mode === 'register' ? 'Criar conta' : 'Entrar'}</h1>
+          </div>
+        </div>
+
+        <div className="view-switcher auth-switcher" role="tablist" aria-label="Acesso">
+          <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>
+            Login
+          </button>
+          <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>
+            Cadastro
+          </button>
+        </div>
+
+        <form className="auth-form" onSubmit={submit}>
+          {mode === 'register' ? (
+            <label>
+              Nome
+              <input value={form.name} onChange={(event) => updateField('name', event.target.value)} autoComplete="name" required />
+            </label>
+          ) : null}
+          <label>
+            E-mail
+            <input type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} autoComplete="email" required />
+          </label>
+          <label>
+            Senha
+            <input type="password" value={form.password} onChange={(event) => updateField('password', event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={8} required />
+          </label>
+          {error ? <p className="form-error">{error}</p> : null}
+          <button type="submit" className="primary-button" disabled={isSubmitting}>
+            {isSubmitting ? 'Enviando...' : mode === 'register' ? 'Criar conta' : 'Entrar'}
+          </button>
+        </form>
+      </section>
     </main>
   );
 }
@@ -766,7 +1057,7 @@ function TaskModal({ task, areas, onClose, onSave }) {
     dueDate: task.dueDate || '',
     tagsText: (task.tags || []).join(', '),
     checklistText: (task.checklist || []).map((item) => `${item.done ? '[x]' : '[ ]'} ${item.text}`).join('\n'),
-    columnId: task.columnId || 'todo',
+    columnId: task.columnId || areas[0]?.id || 'todo',
   });
 
   function updateField(field, value) {
@@ -906,6 +1197,53 @@ function AreaModal({ area, onClose, onSave }) {
           <button type="submit" className="primary-button">
             <CheckCircle2 size={18} />
             {area ? 'Salvar area' : 'Criar area'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function NameModal({ title, label, placeholder, onClose, onSave }) {
+  const [name, setName] = React.useState('');
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onSave(name);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel salvar.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="task-modal area-modal" onSubmit={submit}>
+        <header>
+          <h2>{title}</h2>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+        <label>
+          {label}
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={placeholder} autoFocus />
+        </label>
+        {error ? <p className="form-error">{error}</p> : null}
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary-button" disabled={isSubmitting}>
+            <CheckCircle2 size={18} />
+            {isSubmitting ? 'Salvando...' : 'Salvar'}
           </button>
         </footer>
       </form>
