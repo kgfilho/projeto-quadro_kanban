@@ -571,7 +571,7 @@ select:focus,
 
 .column-header {
   display: grid;
-  grid-template-columns: 1fr repeat(5, auto);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
@@ -620,6 +620,15 @@ select:focus,
   background: var(--bg-soft);
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.column-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 34px;
+  gap: 10px;
 }
 
 .task-list {
@@ -1608,12 +1617,11 @@ select:focus,
     grid-template-columns: 1fr;
   }
 
-  .column-header {
-    grid-template-columns: 1fr auto auto;
+  .column-actions {
+    justify-content: stretch;
   }
 
-  .column-header .icon-button {
-    grid-column: 1 / -1;
+  .column-actions .icon-button {
     width: 100%;
   }
 }

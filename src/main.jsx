@@ -1255,25 +1255,27 @@ function KanbanColumn({
           </div>
         </div>
         <strong className="column-count">{visibleTasks.length}</strong>
-        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, -1)} disabled={!canEdit || areaIndex === 0} aria-label={`Mover ${area.title} para esquerda`}>
-          <ArrowLeft size={15} />
-        </button>
-        <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, 1)} disabled={!canEdit || areaIndex === areaCount - 1} aria-label={`Mover ${area.title} para direita`}>
-          <ArrowRight size={15} />
-        </button>
-        <button type="button" className="icon-button small" onClick={onAddTask} disabled={!canEdit} aria-label={`Adicionar em ${area.title}`}>
-          <Plus size={16} />
-        </button>
-        {!area.locked && canEdit ? (
-          <>
-            <button type="button" className="icon-button small" onClick={onEditArea} aria-label={`Editar area ${area.title}`}>
-              <Edit3 size={15} />
-            </button>
-            <button type="button" className="icon-button small danger-action" onClick={onDeleteArea} aria-label={`Remover area ${area.title}`}>
-              <Trash2 size={15} />
-            </button>
-          </>
-        ) : null}
+        <div className="column-actions">
+          <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, -1)} disabled={!canEdit || areaIndex === 0} aria-label={`Mover ${area.title} para esquerda`}>
+            <ArrowLeft size={15} />
+          </button>
+          <button type="button" className="icon-button small" onClick={() => onMoveArea(area.id, 1)} disabled={!canEdit || areaIndex === areaCount - 1} aria-label={`Mover ${area.title} para direita`}>
+            <ArrowRight size={15} />
+          </button>
+          <button type="button" className="icon-button small" onClick={onAddTask} disabled={!canEdit} aria-label={`Adicionar em ${area.title}`}>
+            <Plus size={16} />
+          </button>
+          {!area.locked && canEdit ? (
+            <>
+              <button type="button" className="icon-button small" onClick={onEditArea} aria-label={`Editar area ${area.title}`}>
+                <Edit3 size={15} />
+              </button>
+              <button type="button" className="icon-button small danger-action" onClick={onDeleteArea} aria-label={`Remover area ${area.title}`}>
+                <Trash2 size={15} />
+              </button>
+            </>
+          ) : null}
+        </div>
       </header>
 
       <SortableContext items={visibleTasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
