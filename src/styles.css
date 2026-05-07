@@ -158,7 +158,7 @@ h1 {
   background: var(--bg-panel);
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .api-status::before {
@@ -402,7 +402,7 @@ select:focus,
   background: var(--bg-panel);
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
