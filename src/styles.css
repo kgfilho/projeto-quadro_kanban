@@ -323,8 +323,9 @@ select:focus,
 }
 
 .project-strip {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(420px, 560px) auto;
+  align-items: start;
   justify-content: space-between;
   gap: 10px;
   margin: 0 -28px 18px;
@@ -345,20 +346,40 @@ select:focus,
   flex-wrap: wrap;
 }
 
+.context-selectors {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
 .context-selectors label {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 96px minmax(260px, 1fr);
   align-items: center;
-  gap: 8px;
-  min-width: min(320px, 100%);
+  gap: 10px;
+  min-width: 0;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
 }
 
+.context-selectors label span {
+  text-align: right;
+}
+
 .context-selectors select {
-  min-width: 210px;
-  width: auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.context-actions {
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
+.context-actions .secondary-button {
+  min-width: 118px;
 }
 
 .project-strip strong {
@@ -1334,12 +1355,11 @@ select:focus,
 
   .project-strip {
     align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: 1fr;
     margin-left: -28px;
     margin-right: -28px;
   }
 
-  .context-selectors,
   .context-actions,
   .workspace-bar,
   .board-toolbar {
@@ -1350,6 +1370,14 @@ select:focus,
   .context-selectors,
   .context-selectors label {
     width: 100%;
+  }
+
+  .context-selectors label {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .context-selectors label span {
+    text-align: right;
   }
 
   .context-selectors select,
@@ -1433,6 +1461,15 @@ select:focus,
     margin-left: -18px;
     margin-right: -18px;
     padding: 12px 18px;
+  }
+
+  .context-selectors label {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .context-selectors label span {
+    text-align: left;
   }
 
   .workspace-bar {
