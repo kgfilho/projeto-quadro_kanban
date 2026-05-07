@@ -722,6 +722,18 @@ function App() {
       await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: project.id });
       setNameModal(null);
       showToast('Projeto criado.');
+      return;
+    }
+
+    if (nameModal?.type === 'rename-workspace') {
+      await renameWorkspace(cleanName);
+      setNameModal(null);
+      return;
+    }
+
+    if (nameModal?.type === 'rename-project') {
+      await renameProject(cleanName);
+      setNameModal(null);
     }
   }
 
@@ -753,6 +765,16 @@ function App() {
     await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: project.id });
     setActiveView('settings');
     showToast('Projeto renomeado.');
+  }
+
+  function openRenameWorkspaceModal() {
+    if (!selectedWorkspace || !canManageTeam) return;
+    setNameModal({ type: 'rename-workspace', name: selectedWorkspace.name });
+  }
+
+  function openRenameProjectModal() {
+    if (!selectedProject || !canManageProject) return;
+    setNameModal({ type: 'rename-project', name: selectedProject.name });
   }
 
   async function createInviteLink(payload) {
@@ -1005,8 +1027,8 @@ function App() {
           canDeleteWorkspace={canDeleteWorkspace}
           canDeleteProject={canDeleteProject}
           onOpenTeam={() => setTeamModalOpen(true)}
-          onRenameWorkspace={renameWorkspace}
-          onRenameProject={renameProject}
+          onRenameWorkspace={openRenameWorkspaceModal}
+          onRenameProject={openRenameProjectModal}
           onUpdateRole={updateMemberRole}
           onRemoveMember={confirmRemoveMember}
           onDeleteWorkspace={confirmDeleteWorkspace}
@@ -1020,9 +1042,11 @@ function App() {
       {areaModal ? <AreaModal area={areaModal.area} onClose={() => setAreaModal(null)} onSave={saveArea} /> : null}
       {nameModal ? (
         <NameModal
-          title={nameModal.type === 'workspace' ? 'Novo workspace' : 'Novo projeto'}
-          label={nameModal.type === 'workspace' ? 'Nome do workspace' : 'Nome do projeto'}
-          placeholder={nameModal.type === 'workspace' ? 'Ex: Equipe Produto' : 'Ex: Site institucional'}
+          title={nameModal.type === 'workspace' ? 'Novo workspace' : nameModal.type === 'project' ? 'Novo projeto' : nameModal.type === 'rename-workspace' ? 'Renomear workspace' : 'Renomear projeto'}
+          label={nameModal.type === 'workspace' || nameModal.type === 'rename-workspace' ? 'Nome do workspace' : 'Nome do projeto'}
+          placeholder={nameModal.type === 'workspace' || nameModal.type === 'rename-workspace' ? 'Ex: Equipe Produto' : 'Ex: Site institucional'}
+          initialValue={nameModal.name || ''}
+          submitLabel={nameModal.type?.startsWith('rename') ? 'Renomear' : 'Salvar'}
           onClose={() => setNameModal(null)}
           onSave={saveNameModal}
         />
@@ -1519,8 +1543,8 @@ function AreaModal({ area, onClose, onSave }) {
   );
 }
 
-function NameModal({ title, label, placeholder, onClose, onSave }) {
-  const [name, setName] = React.useState('');
+function NameModal({ title, label, placeholder, initialValue = '', submitLabel = 'Salvar', onClose, onSave }) {
+  const [name, setName] = React.useState(initialValue);
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -1558,7 +1582,7 @@ function NameModal({ title, label, placeholder, onClose, onSave }) {
           </button>
           <button type="submit" className="primary-button" disabled={isSubmitting}>
             <CheckCircle2 size={18} />
-            {isSubmitting ? 'Salvando...' : 'Salvar'}
+            {isSubmitting ? 'Salvando...' : submitLabel}
           </button>
         </footer>
       </form>
@@ -1807,12 +1831,10 @@ function SettingsView({
           <h3>{workspace?.name || 'Nenhum workspace selecionado'}</h3>
           <p>Owner e admin podem renomear. Exclusao definitiva fica disponivel apenas para owner.</p>
         </div>
-        <RenameForm
-          label="Nome do workspace"
-          value={workspace?.name || ''}
-          disabled={!workspace || !canManageTeam}
-          onSave={onRenameWorkspace}
-        />
+        <button type="button" className="secondary-button" onClick={onRenameWorkspace} disabled={!workspace || !canManageTeam}>
+          <Edit3 size={17} />
+          Renomear
+        </button>
         <button type="button" className="secondary-button danger-outline" onClick={onDeleteWorkspace} disabled={!canDeleteWorkspace}>
           <Trash2 size={17} />
           Excluir workspace
@@ -1825,12 +1847,10 @@ function SettingsView({
           <h3>{project?.name || 'Nenhum projeto selecionado'}</h3>
           <p>Owner e admin podem renomear ou excluir o projeto atual.</p>
         </div>
-        <RenameForm
-          label="Nome do projeto"
-          value={project?.name || ''}
-          disabled={!project || !canManageProject}
-          onSave={onRenameProject}
-        />
+        <button type="button" className="secondary-button" onClick={onRenameProject} disabled={!project || !canManageProject}>
+          <Edit3 size={17} />
+          Renomear
+        </button>
         <button type="button" className="secondary-button danger-outline" onClick={onDeleteProject} disabled={!canDeleteProject || !project}>
           <Trash2 size={17} />
           Excluir projeto
@@ -1881,46 +1901,6 @@ function SettingsView({
         </div>
       </section>
     </section>
-  );
-}
-
-function RenameForm({ label, value, disabled, onSave }) {
-  const [name, setName] = React.useState(value);
-  const [error, setError] = React.useState('');
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
-
-  React.useEffect(() => {
-    setName(value);
-    setError('');
-  }, [value]);
-
-  async function submit(event) {
-    event.preventDefault();
-    const cleanName = name.trim();
-    if (!cleanName || cleanName === value) return;
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await onSave(cleanName);
-    } catch (submitError) {
-      setError(submitError.message || 'Nao foi possivel renomear.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <form className="rename-form" onSubmit={submit}>
-      <label>
-        {label}
-        <input value={name} onChange={(event) => setName(event.target.value)} disabled={disabled} />
-      </label>
-      <button type="submit" className="secondary-button" disabled={disabled || isSubmitting || !name.trim() || name.trim() === value}>
-        <CheckCircle2 size={17} />
-        {isSubmitting ? 'Salvando...' : 'Salvar'}
-      </button>
-      {error ? <p className="form-error">{error}</p> : null}
-    </form>
   );
 }
 
