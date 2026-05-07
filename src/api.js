@@ -57,6 +57,13 @@ export function createWorkspace(payload) {
   }).then((data) => data.workspace);
 }
 
+export function updateWorkspace(workspaceId, payload) {
+  return request(`/api/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }).then((data) => data.workspace);
+}
+
 export function deleteWorkspace(workspaceId, payload) {
   return request(`/api/workspaces/${workspaceId}`, {
     method: 'DELETE',
@@ -122,6 +129,13 @@ export function listProjects(workspaceId) {
 export function createProject(workspaceId, payload) {
   return request(`/api/workspaces/${workspaceId}/projects`, {
     method: 'POST',
+    body: JSON.stringify(payload),
+  }).then((data) => data.project);
+}
+
+export function updateProject(projectId, payload) {
+  return request(`/api/projects/${projectId}`, {
+    method: 'PATCH',
     body: JSON.stringify(payload),
   }).then((data) => data.project);
 }

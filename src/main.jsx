@@ -49,7 +49,9 @@ import {
   revokeWorkspaceInvite,
   saveProjectBoard,
   subscribeToProjectEvents,
+  updateProject,
   updateWorkspaceMember,
+  updateWorkspace,
 } from './api.js';
 import './styles.css';
 
@@ -393,8 +395,9 @@ function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const canEditBoard = ['owner', 'admin', 'editor'].includes(selectedProject?.role);
   const canManageTeam = ['owner', 'admin'].includes(selectedWorkspace?.role);
+  const canManageProject = ['owner', 'admin'].includes(selectedProject?.role);
   const canDeleteWorkspace = selectedWorkspace?.role === 'owner';
-  const canDeleteProject = ['owner', 'admin'].includes(selectedProject?.role);
+  const canDeleteProject = canManageProject;
 
   React.useEffect(() => {
     if (authStatus !== 'authenticated' || !selectedProjectId) {
@@ -736,6 +739,22 @@ function App() {
     showToast('Permissao atualizada.');
   }
 
+  async function renameWorkspace(name) {
+    if (!selectedWorkspace || !canManageTeam) return;
+    const workspace = await updateWorkspace(selectedWorkspace.id, { name });
+    await loadWorkspaceData({ preferredWorkspaceId: workspace.id, preferredProjectId: selectedProjectId });
+    setActiveView('settings');
+    showToast('Workspace renomeado.');
+  }
+
+  async function renameProject(name) {
+    if (!selectedProject || !canManageProject) return;
+    const project = await updateProject(selectedProject.id, { name });
+    await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: project.id });
+    setActiveView('settings');
+    showToast('Projeto renomeado.');
+  }
+
   async function createInviteLink(payload) {
     const result = await createWorkspaceInvite(selectedWorkspaceId, payload);
     await loadInvites(selectedWorkspaceId);
@@ -982,9 +1001,12 @@ function App() {
           members={members}
           currentUserId={user?.id}
           canManageTeam={canManageTeam}
+          canManageProject={canManageProject}
           canDeleteWorkspace={canDeleteWorkspace}
           canDeleteProject={canDeleteProject}
           onOpenTeam={() => setTeamModalOpen(true)}
+          onRenameWorkspace={renameWorkspace}
+          onRenameProject={renameProject}
           onUpdateRole={updateMemberRole}
           onRemoveMember={confirmRemoveMember}
           onDeleteWorkspace={confirmDeleteWorkspace}
@@ -1743,9 +1765,12 @@ function SettingsView({
   members,
   currentUserId,
   canManageTeam,
+  canManageProject,
   canDeleteWorkspace,
   canDeleteProject,
   onOpenTeam,
+  onRenameWorkspace,
+  onRenameProject,
   onUpdateRole,
   onRemoveMember,
   onDeleteWorkspace,
@@ -1780,8 +1805,14 @@ function SettingsView({
         <div>
           <p className="eyebrow">Workspace</p>
           <h3>{workspace?.name || 'Nenhum workspace selecionado'}</h3>
-          <p>Exclusao disponivel apenas para owner. Remove projetos, equipe, convites e tarefas vinculadas.</p>
+          <p>Owner e admin podem renomear. Exclusao definitiva fica disponivel apenas para owner.</p>
         </div>
+        <RenameForm
+          label="Nome do workspace"
+          value={workspace?.name || ''}
+          disabled={!workspace || !canManageTeam}
+          onSave={onRenameWorkspace}
+        />
         <button type="button" className="secondary-button danger-outline" onClick={onDeleteWorkspace} disabled={!canDeleteWorkspace}>
           <Trash2 size={17} />
           Excluir workspace
@@ -1792,8 +1823,14 @@ function SettingsView({
         <div>
           <p className="eyebrow">Projeto</p>
           <h3>{project?.name || 'Nenhum projeto selecionado'}</h3>
-          <p>Owner e admin podem excluir o projeto atual. A confirmacao pelo nome evita remocoes acidentais.</p>
+          <p>Owner e admin podem renomear ou excluir o projeto atual.</p>
         </div>
+        <RenameForm
+          label="Nome do projeto"
+          value={project?.name || ''}
+          disabled={!project || !canManageProject}
+          onSave={onRenameProject}
+        />
         <button type="button" className="secondary-button danger-outline" onClick={onDeleteProject} disabled={!canDeleteProject || !project}>
           <Trash2 size={17} />
           Excluir projeto
@@ -1844,6 +1881,46 @@ function SettingsView({
         </div>
       </section>
     </section>
+  );
+}
+
+function RenameForm({ label, value, disabled, onSave }) {
+  const [name, setName] = React.useState(value);
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    setName(value);
+    setError('');
+  }, [value]);
+
+  async function submit(event) {
+    event.preventDefault();
+    const cleanName = name.trim();
+    if (!cleanName || cleanName === value) return;
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onSave(cleanName);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel renomear.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="rename-form" onSubmit={submit}>
+      <label>
+        {label}
+        <input value={name} onChange={(event) => setName(event.target.value)} disabled={disabled} />
+      </label>
+      <button type="submit" className="secondary-button" disabled={disabled || isSubmitting || !name.trim() || name.trim() === value}>
+        <CheckCircle2 size={17} />
+        {isSubmitting ? 'Salvando...' : 'Salvar'}
+      </button>
+      {error ? <p className="form-error">{error}</p> : null}
+    </form>
   );
 }
 
