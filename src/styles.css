@@ -1284,6 +1284,7 @@ select:focus,
 
 .calendar-empty {
   display: grid;
+  width: 100%;
   min-height: 280px;
   place-items: center;
   gap: 10px;
@@ -1298,7 +1299,7 @@ select:focus,
 .activity-view {
   display: grid;
   gap: 10px;
-  max-width: 920px;
+  width: 100%;
 }
 
 .activity-item {
