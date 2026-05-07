@@ -406,6 +406,7 @@ select:focus,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .workspace-bar {
@@ -1156,24 +1157,9 @@ select:focus,
   box-shadow: 0 10px 24px var(--shadow-soft);
 }
 
-.settings-account {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-panel);
-  box-shadow: 0 10px 24px var(--shadow-soft);
-}
-
-.settings-account p:not(.eyebrow) {
-  margin-top: 5px;
-  color: var(--text-secondary);
-}
-
 .account-form {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
 }
@@ -1192,6 +1178,17 @@ select:focus,
 
 .account-form .form-error {
   grid-column: 1 / -1;
+}
+
+.account-modal {
+  width: min(680px, 100%);
+}
+
+.account-modal header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .settings-section > .secondary-button {

@@ -194,6 +194,7 @@ function App() {
   const [modalTask, setModalTask] = React.useState(null);
   const [areaModal, setAreaModal] = React.useState(null);
   const [nameModal, setNameModal] = React.useState(null);
+  const [accountModalOpen, setAccountModalOpen] = React.useState(false);
   const [confirmDialog, setConfirmDialog] = React.useState(null);
   const [toasts, setToasts] = React.useState([]);
   const [apiStatus, setApiStatus] = React.useState('checking');
@@ -896,10 +897,10 @@ function App() {
           <span className={`api-status realtime ${realtimeStatus}`}>
             {realtimeStatus === 'online' ? 'Tempo real' : realtimeStatus === 'offline' ? 'Sem tempo real' : realtimeStatus === 'connecting' ? 'Conectando realtime' : 'Realtime ocioso'}
           </span>
-          <span className="user-chip">
+          <button type="button" className="user-chip" onClick={() => setAccountModalOpen(true)} aria-label="Abrir minha conta">
             <User size={16} />
             {user?.name || user?.email}
-          </span>
+          </button>
           <button type="button" className="icon-button" onClick={() => saveUserTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
@@ -1044,8 +1045,6 @@ function App() {
         <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => (canEditBoard ? setModalTask(task) : null)} />
       ) : activeView === 'settings' ? (
         <SettingsView
-          user={user}
-          theme={theme}
           workspace={selectedWorkspace}
           project={selectedProject}
           members={members}
@@ -1054,9 +1053,6 @@ function App() {
           canManageProject={canManageProject}
           canDeleteWorkspace={canDeleteWorkspace}
           canDeleteProject={canDeleteProject}
-          onUpdateUserProfile={updateUserProfile}
-          onUpdateUserPassword={updateUserPassword}
-          onUpdateUserTheme={saveUserTheme}
           onOpenTeam={() => setTeamModalOpen(true)}
           onRenameWorkspace={openRenameWorkspaceModal}
           onRenameProject={openRenameProjectModal}
@@ -1080,6 +1076,17 @@ function App() {
           submitLabel={nameModal.type?.startsWith('rename') ? 'Renomear' : 'Salvar'}
           onClose={() => setNameModal(null)}
           onSave={saveNameModal}
+        />
+      ) : null}
+      {accountModalOpen ? (
+        <AccountModal
+          user={user}
+          theme={theme}
+          onClose={() => setAccountModalOpen(false)}
+          onUpdateProfile={updateUserProfile}
+          onUpdatePassword={updateUserPassword}
+          onUpdateTheme={saveUserTheme}
+          onLogout={handleLogout}
         />
       ) : null}
       {teamModalOpen ? (
@@ -1817,8 +1824,6 @@ function TeamModal({
 }
 
 function SettingsView({
-  user,
-  theme,
   workspace,
   project,
   members,
@@ -1827,9 +1832,6 @@ function SettingsView({
   canManageProject,
   canDeleteWorkspace,
   canDeleteProject,
-  onUpdateUserProfile,
-  onUpdateUserPassword,
-  onUpdateUserTheme,
   onOpenTeam,
   onRenameWorkspace,
   onRenameProject,
@@ -1862,14 +1864,6 @@ function SettingsView({
       </header>
 
       {error ? <p className="form-error">{error}</p> : null}
-
-      <AccountSettings
-        user={user}
-        theme={theme}
-        onUpdateProfile={onUpdateUserProfile}
-        onUpdatePassword={onUpdateUserPassword}
-        onUpdateTheme={onUpdateUserTheme}
-      />
 
       <section className="settings-section" aria-label="Workspace">
         <div>
@@ -1950,7 +1944,7 @@ function SettingsView({
   );
 }
 
-function AccountSettings({ user, theme, onUpdateProfile, onUpdatePassword, onUpdateTheme }) {
+function AccountModal({ user, theme, onClose, onUpdateProfile, onUpdatePassword, onUpdateTheme, onLogout }) {
   const [profileName, setProfileName] = React.useState(user?.name || '');
   const [passwordForm, setPasswordForm] = React.useState({ currentPassword: '', newPassword: '' });
   const [error, setError] = React.useState('');
@@ -1990,54 +1984,68 @@ function AccountSettings({ user, theme, onUpdateProfile, onUpdatePassword, onUpd
   }
 
   return (
-    <section className="settings-account" aria-label="Minha conta">
-      <div className="settings-section-head">
-        <div>
-          <p className="eyebrow">Minha conta</p>
-          <h3>{user?.name || 'Usuario'}</h3>
-          <p>{user?.email}</p>
+    <div className="modal-backdrop" role="presentation">
+      <section className="task-modal account-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
+        <header>
+          <div>
+            <p className="eyebrow">Minha conta</p>
+            <h2 id="account-title">{user?.name || 'Usuario'}</h2>
+            <span>{user?.email}</span>
+          </div>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+
+        {error ? <p className="form-error">{error}</p> : null}
+
+        <form className="account-form" onSubmit={saveProfile}>
+          <label>
+            Nome
+            <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isSubmitting || !profileName.trim() || profileName.trim() === user?.name}>
+            <CheckCircle2 size={17} />
+            Salvar perfil
+          </button>
+        </form>
+
+        <div className="account-form">
+          <label>
+            Tema
+            <select value={theme} onChange={(event) => onUpdateTheme(event.target.value)}>
+              <option value="light">Claro</option>
+              <option value="dark">Escuro</option>
+            </select>
+          </label>
         </div>
-        <User size={22} />
-      </div>
 
-      {error ? <p className="form-error">{error}</p> : null}
+        <form className="account-form" onSubmit={savePassword}>
+          <label>
+            Senha atual
+            <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, currentPassword: event.target.value }))} autoComplete="current-password" />
+          </label>
+          <label>
+            Nova senha
+            <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, newPassword: event.target.value }))} autoComplete="new-password" />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isSubmitting || !passwordForm.currentPassword || passwordForm.newPassword.length < 10}>
+            <CheckCircle2 size={17} />
+            Alterar senha
+          </button>
+        </form>
 
-      <form className="account-form" onSubmit={saveProfile}>
-        <label>
-          Nome
-          <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
-        </label>
-        <button type="submit" className="secondary-button" disabled={isSubmitting || !profileName.trim() || profileName.trim() === user?.name}>
-          <CheckCircle2 size={17} />
-          Salvar perfil
-        </button>
-      </form>
-
-      <div className="account-form">
-        <label>
-          Tema
-          <select value={theme} onChange={(event) => onUpdateTheme(event.target.value)}>
-            <option value="light">Claro</option>
-            <option value="dark">Escuro</option>
-          </select>
-        </label>
-      </div>
-
-      <form className="account-form" onSubmit={savePassword}>
-        <label>
-          Senha atual
-          <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, currentPassword: event.target.value }))} autoComplete="current-password" />
-        </label>
-        <label>
-          Nova senha
-          <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, newPassword: event.target.value }))} autoComplete="new-password" />
-        </label>
-        <button type="submit" className="secondary-button" disabled={isSubmitting || !passwordForm.currentPassword || passwordForm.newPassword.length < 10}>
-          <CheckCircle2 size={17} />
-          Alterar senha
-        </button>
-      </form>
-    </section>
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Fechar
+          </button>
+          <button type="button" className="secondary-button danger-outline" onClick={onLogout}>
+            <LogOut size={17} />
+            Sair
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
