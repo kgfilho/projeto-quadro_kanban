@@ -805,34 +805,50 @@ function App() {
         <div className="context-selectors">
           <label>
             <span>Workspace</span>
-            <select value={selectedWorkspaceId} onChange={(event) => handleWorkspaceChange(event.target.value)} aria-label="Selecionar workspace">
+            <select
+              value={selectedWorkspaceId}
+              onChange={(event) => {
+                if (event.target.value === 'new-workspace') {
+                  setNameModal({ type: 'workspace' });
+                  return;
+                }
+                handleWorkspaceChange(event.target.value);
+              }}
+              aria-label="Selecionar workspace"
+            >
               {workspaces.map((workspace) => (
                 <option key={workspace.id} value={workspace.id}>
                   {workspace.name}
                 </option>
               ))}
+              <option value="new-workspace">+ Criar workspace</option>
             </select>
           </label>
           <label>
             <span>Projeto</span>
-            <select value={selectedProjectId} onChange={(event) => handleProjectChange(event.target.value)} aria-label="Selecionar projeto" disabled={!projects.length}>
+            <select
+              value={selectedProjectId || ''}
+              onChange={(event) => {
+                if (event.target.value === 'new-project') {
+                  setNameModal({ type: 'project' });
+                  return;
+                }
+                handleProjectChange(event.target.value);
+              }}
+              aria-label="Selecionar projeto"
+              disabled={!selectedWorkspaceId}
+            >
+              {!projects.length ? <option value="">Nenhum projeto</option> : null}
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
                 </option>
               ))}
+              <option value="new-project">+ Criar projeto</option>
             </select>
           </label>
         </div>
         <div className="context-actions">
-          <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'workspace' })}>
-            <Plus size={17} />
-            Workspace
-          </button>
-          <button type="button" className="secondary-button" onClick={() => setNameModal({ type: 'project' })} disabled={!selectedWorkspaceId}>
-            <Plus size={17} />
-            Projeto
-          </button>
           <button type="button" className="secondary-button" onClick={() => setTeamModalOpen(true)} disabled={!selectedWorkspaceId}>
             <Users size={17} />
             Equipe
