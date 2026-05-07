@@ -538,17 +538,23 @@ select:focus,
 }
 
 .column.todo::before,
-.column.todo .column-icon {
+.column.todo .column-icon,
+.column.area-circle::before,
+.column.area-circle .column-icon {
   background: var(--todo);
 }
 
 .column.in-progress::before,
-.column.in-progress .column-icon {
+.column.in-progress .column-icon,
+.column.area-progress::before,
+.column.area-progress .column-icon {
   background: var(--progress);
 }
 
 .column.done::before,
-.column.done .column-icon {
+.column.done .column-icon,
+.column.area-done::before,
+.column.area-done .column-icon {
   background: var(--done);
 }
 
@@ -580,10 +586,16 @@ select:focus,
 }
 
 .column-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
   color: #ffffff;
+}
+
+.column-icon svg {
+  display: block;
+  width: 24px;
+  height: 24px;
 }
 
 .column-header h2 {
@@ -591,7 +603,7 @@ select:focus,
   line-height: 1.2;
 }
 
-.column-header span {
+.column-title > div > span {
   display: block;
   margin-top: 3px;
   color: var(--text-secondary);

@@ -91,14 +91,14 @@ function normalizeAreas(areas) {
   const normalized = areas
     .filter((area) => area?.id)
     .map((area) => {
-      const defaultArea = defaultAreas.find((item) => item.id === area.id);
+      const defaultArea = defaultAreas.find((item) => area.id === item.id || area.id.startsWith(`${item.id}-`));
       return {
         ...(defaultArea || {}),
         id: area.id,
         title: area.title || defaultArea?.title || 'Nova area',
         helper: area.helper || defaultArea?.helper || 'Area personalizada',
         icon: area.icon || defaultArea?.icon || 'custom',
-        locked: defaultArea?.locked || false,
+        locked: Boolean(defaultArea?.locked),
       };
     });
 
@@ -1243,11 +1243,11 @@ function KanbanColumn({
   });
 
   return (
-    <article ref={setNodeRef} className={`column ${area.id} ${area.locked ? '' : 'custom-area'} ${isOver ? 'is-over' : ''}`}>
+    <article ref={setNodeRef} className={`column ${area.id} area-${area.icon} ${area.locked ? '' : 'custom-area'} ${isOver ? 'is-over' : ''}`}>
       <header className="column-header">
         <div className="column-title">
           <span className="column-icon">
-            <AreaIcon size={18} />
+            <AreaIcon size={24} />
           </span>
           <div>
             <h2>{area.title}</h2>
