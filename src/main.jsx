@@ -49,6 +49,9 @@ import {
   revokeWorkspaceInvite,
   saveProjectBoard,
   subscribeToProjectEvents,
+  updateCurrentUserPassword,
+  updateCurrentUserPreferences,
+  updateCurrentUserProfile,
   updateProject,
   updateWorkspaceMember,
   updateWorkspace,
@@ -184,7 +187,7 @@ function checklistProgress(checklist = []) {
 function App() {
   const [areas, setAreas] = React.useState(defaultAreas);
   const [board, setBoard] = React.useState(() => normalizeBoard(emptyBoard, defaultAreas));
-  const [theme, setTheme] = React.useState(() => localStorage.getItem('theme') || 'light');
+  const [theme, setTheme] = React.useState('light');
   const [query, setQuery] = React.useState('');
   const [priorityFilter, setPriorityFilter] = React.useState('all');
   const [activeView, setActiveView] = React.useState('board');
@@ -364,6 +367,7 @@ function App() {
         const session = await getCurrentUser();
         if (cancelled) return;
         setUser(session.user);
+        setTheme(session.user.preferredTheme || 'light');
         setAuthStatus('authenticated');
         setApiStatus('online');
         const acceptedWorkspace = await acceptPendingInvite();
@@ -466,7 +470,6 @@ function App() {
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem('theme', theme);
   }, [theme]);
 
   const allTasks = areas.flatMap((area) => (board[area.id] || []).map((task) => ({ ...task, columnId: area.id })));
@@ -657,6 +660,7 @@ function App() {
     const action = mode === 'register' ? registerUser : loginUser;
     const session = await action(payload);
     setUser(session.user);
+    setTheme(session.user.preferredTheme || 'light');
     setAuthStatus('authenticated');
     setApiStatus('online');
     const acceptedWorkspace = await acceptPendingInvite();
@@ -749,6 +753,28 @@ function App() {
     await loadMembers(selectedWorkspaceId);
     await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: selectedProjectId });
     showToast('Permissao atualizada.');
+  }
+
+  async function updateUserProfile(payload) {
+    const updatedUser = await updateCurrentUserProfile(payload);
+    setUser(updatedUser);
+    showToast('Perfil atualizado.');
+  }
+
+  async function updateUserPassword(payload) {
+    await updateCurrentUserPassword(payload);
+    showToast('Senha atualizada.');
+  }
+
+  async function saveUserTheme(nextTheme) {
+    setTheme(nextTheme);
+    if (authStatus !== 'authenticated') return;
+    try {
+      const updatedUser = await updateCurrentUserPreferences({ preferredTheme: nextTheme });
+      setUser(updatedUser);
+    } catch {
+      showToast('Tema alterado apenas nesta sessao.', 'warning');
+    }
   }
 
   async function renameWorkspace(name) {
@@ -874,7 +900,7 @@ function App() {
             <User size={16} />
             {user?.name || user?.email}
           </span>
-          <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
+          <button type="button" className="icon-button" onClick={() => saveUserTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Alternar tema">
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <button type="button" className="icon-button" onClick={handleLogout} aria-label="Sair">
@@ -1018,6 +1044,8 @@ function App() {
         <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => (canEditBoard ? setModalTask(task) : null)} />
       ) : activeView === 'settings' ? (
         <SettingsView
+          user={user}
+          theme={theme}
           workspace={selectedWorkspace}
           project={selectedProject}
           members={members}
@@ -1026,6 +1054,9 @@ function App() {
           canManageProject={canManageProject}
           canDeleteWorkspace={canDeleteWorkspace}
           canDeleteProject={canDeleteProject}
+          onUpdateUserProfile={updateUserProfile}
+          onUpdateUserPassword={updateUserPassword}
+          onUpdateUserTheme={saveUserTheme}
           onOpenTeam={() => setTeamModalOpen(true)}
           onRenameWorkspace={openRenameWorkspaceModal}
           onRenameProject={openRenameProjectModal}
@@ -1786,6 +1817,8 @@ function TeamModal({
 }
 
 function SettingsView({
+  user,
+  theme,
   workspace,
   project,
   members,
@@ -1794,6 +1827,9 @@ function SettingsView({
   canManageProject,
   canDeleteWorkspace,
   canDeleteProject,
+  onUpdateUserProfile,
+  onUpdateUserPassword,
+  onUpdateUserTheme,
   onOpenTeam,
   onRenameWorkspace,
   onRenameProject,
@@ -1826,6 +1862,14 @@ function SettingsView({
       </header>
 
       {error ? <p className="form-error">{error}</p> : null}
+
+      <AccountSettings
+        user={user}
+        theme={theme}
+        onUpdateProfile={onUpdateUserProfile}
+        onUpdatePassword={onUpdateUserPassword}
+        onUpdateTheme={onUpdateUserTheme}
+      />
 
       <section className="settings-section" aria-label="Workspace">
         <div>
@@ -1902,6 +1946,97 @@ function SettingsView({
           })}
         </div>
       </section>
+    </section>
+  );
+}
+
+function AccountSettings({ user, theme, onUpdateProfile, onUpdatePassword, onUpdateTheme }) {
+  const [profileName, setProfileName] = React.useState(user?.name || '');
+  const [passwordForm, setPasswordForm] = React.useState({ currentPassword: '', newPassword: '' });
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    setProfileName(user?.name || '');
+  }, [user?.name]);
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    const name = profileName.trim();
+    if (!name || name === user?.name) return;
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onUpdateProfile({ name });
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel atualizar o perfil.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function savePassword(event) {
+    event.preventDefault();
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onUpdatePassword(passwordForm);
+      setPasswordForm({ currentPassword: '', newPassword: '' });
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel atualizar a senha.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="settings-account" aria-label="Minha conta">
+      <div className="settings-section-head">
+        <div>
+          <p className="eyebrow">Minha conta</p>
+          <h3>{user?.name || 'Usuario'}</h3>
+          <p>{user?.email}</p>
+        </div>
+        <User size={22} />
+      </div>
+
+      {error ? <p className="form-error">{error}</p> : null}
+
+      <form className="account-form" onSubmit={saveProfile}>
+        <label>
+          Nome
+          <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+        </label>
+        <button type="submit" className="secondary-button" disabled={isSubmitting || !profileName.trim() || profileName.trim() === user?.name}>
+          <CheckCircle2 size={17} />
+          Salvar perfil
+        </button>
+      </form>
+
+      <div className="account-form">
+        <label>
+          Tema
+          <select value={theme} onChange={(event) => onUpdateTheme(event.target.value)}>
+            <option value="light">Claro</option>
+            <option value="dark">Escuro</option>
+          </select>
+        </label>
+      </div>
+
+      <form className="account-form" onSubmit={savePassword}>
+        <label>
+          Senha atual
+          <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, currentPassword: event.target.value }))} autoComplete="current-password" />
+        </label>
+        <label>
+          Nova senha
+          <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm((currentForm) => ({ ...currentForm, newPassword: event.target.value }))} autoComplete="new-password" />
+        </label>
+        <button type="submit" className="secondary-button" disabled={isSubmitting || !passwordForm.currentPassword || passwordForm.newPassword.length < 10}>
+          <CheckCircle2 size={17} />
+          Alterar senha
+        </button>
+      </form>
     </section>
   );
 }

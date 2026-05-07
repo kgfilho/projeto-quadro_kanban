@@ -1156,6 +1156,44 @@ select:focus,
   box-shadow: 0 10px 24px var(--shadow-soft);
 }
 
+.settings-account {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 24px var(--shadow-soft);
+}
+
+.settings-account p:not(.eyebrow) {
+  margin-top: 5px;
+  color: var(--text-secondary);
+}
+
+.account-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.account-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.account-form .secondary-button {
+  min-width: 142px;
+}
+
+.account-form .form-error {
+  grid-column: 1 / -1;
+}
+
 .settings-section > .secondary-button {
   width: 100%;
   justify-content: center;
@@ -1510,6 +1548,7 @@ select:focus,
 
   .invite-form,
   .invite-link-row,
+  .account-form,
   .settings-header,
   .settings-section,
   .settings-section-head,

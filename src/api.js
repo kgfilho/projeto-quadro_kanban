@@ -46,6 +46,27 @@ export function logoutUser() {
   });
 }
 
+export function updateCurrentUserProfile(payload) {
+  return request('/api/auth/me/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }).then((data) => data.user);
+}
+
+export function updateCurrentUserPreferences(payload) {
+  return request('/api/auth/me/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }).then((data) => data.user);
+}
+
+export function updateCurrentUserPassword(payload) {
+  return request('/api/auth/me/password', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
 export function listWorkspaces() {
   return request('/api/workspaces').then((data) => data.workspaces || []);
 }
