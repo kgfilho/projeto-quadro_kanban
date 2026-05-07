@@ -17,6 +17,7 @@ import {
   Moon,
   Plus,
   Search,
+  Settings,
   SquareKanban,
   TimerReset,
   Sun,
@@ -30,6 +31,8 @@ import {
   createProject,
   createWorkspaceInvite,
   createWorkspace,
+  deleteProject,
+  deleteWorkspace,
   getInvite,
   getCurrentUser,
   getProjectBoard,
@@ -390,6 +393,8 @@ function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const canEditBoard = ['owner', 'admin', 'editor'].includes(selectedProject?.role);
   const canManageTeam = ['owner', 'admin'].includes(selectedWorkspace?.role);
+  const canDeleteWorkspace = selectedWorkspace?.role === 'owner';
+  const canDeleteProject = ['owner', 'admin'].includes(selectedProject?.role);
 
   React.useEffect(() => {
     if (authStatus !== 'authenticated' || !selectedProjectId) {
@@ -757,6 +762,42 @@ function App() {
     });
   }
 
+  function confirmDeleteProject() {
+    if (!selectedProject || !canDeleteProject) return;
+    setConfirmDialog({
+      title: 'Excluir projeto',
+      message: `Esta acao apaga o projeto "${selectedProject.name}", suas areas, tarefas e historico do projeto.`,
+      confirmLabel: 'Excluir projeto',
+      tone: 'danger',
+      confirmationName: selectedProject.name,
+      confirmationLabel: 'Digite o nome do projeto para confirmar',
+      onConfirm: async (confirmationName) => {
+        await deleteProject(selectedProject.id, { confirmationName });
+        await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId });
+        setActiveView('board');
+        showToast('Projeto excluido.', 'danger');
+      },
+    });
+  }
+
+  function confirmDeleteWorkspace() {
+    if (!selectedWorkspace || !canDeleteWorkspace) return;
+    setConfirmDialog({
+      title: 'Excluir workspace',
+      message: `Esta acao apaga o workspace "${selectedWorkspace.name}" com todos os projetos, membros, convites, areas e tarefas.`,
+      confirmLabel: 'Excluir workspace',
+      tone: 'danger',
+      confirmationName: selectedWorkspace.name,
+      confirmationLabel: 'Digite o nome do workspace para confirmar',
+      onConfirm: async (confirmationName) => {
+        await deleteWorkspace(selectedWorkspace.id, { confirmationName });
+        await loadWorkspaceData();
+        setActiveView('board');
+        showToast('Workspace excluido.', 'danger');
+      },
+    });
+  }
+
   if (authStatus === 'checking') {
     return <LoadingScreen theme={theme} setTheme={setTheme} message="Verificando sessao segura" />;
   }
@@ -867,6 +908,9 @@ function App() {
           <button type="button" className={activeView === 'activity' ? 'active' : ''} onClick={() => setActiveView('activity')}>
             Atividade
           </button>
+          <button type="button" className={activeView === 'settings' ? 'active' : ''} onClick={() => setActiveView('settings')}>
+            Configuracoes
+          </button>
         </div>
         <div className="quick-stats" aria-label="Indicadores do projeto">
           <StatCard label="Tarefas" value={stats.total} icon={ClipboardList} tone="blue" />
@@ -877,30 +921,32 @@ function App() {
         </div>
       </section>
 
-      <section className="board-toolbar" aria-label="Ferramentas do quadro">
-        <label className="search-field">
-          <Search size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />
-        </label>
-        <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} aria-label="Filtrar por prioridade">
-          <option value="all">Todas as prioridades</option>
-          {priorities.map((priority) => (
-            <option key={priority.id} value={priority.id}>
-              {priority.label}
-            </option>
-          ))}
-        </select>
-        <div className="toolbar-actions">
-          <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
-            <SquareKanban size={18} />
-            Nova area
-          </button>
-          <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId || !canEditBoard}>
-            <Plus size={18} />
-            Nova tarefa
-          </button>
-        </div>
-      </section>
+      {activeView === 'board' ? (
+        <section className="board-toolbar" aria-label="Ferramentas do quadro">
+          <label className="search-field">
+            <Search size={18} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas" />
+          </label>
+          <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} aria-label="Filtrar por prioridade">
+            <option value="all">Todas as prioridades</option>
+            {priorities.map((priority) => (
+              <option key={priority.id} value={priority.id}>
+                {priority.label}
+              </option>
+            ))}
+          </select>
+          <div className="toolbar-actions">
+            <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
+              <SquareKanban size={18} />
+              Nova area
+            </button>
+            <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId || !canEditBoard}>
+              <Plus size={18} />
+              Nova tarefa
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {activeView === 'board' ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -929,6 +975,21 @@ function App() {
         </DndContext>
       ) : activeView === 'calendar' ? (
         <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => (canEditBoard ? setModalTask(task) : null)} />
+      ) : activeView === 'settings' ? (
+        <SettingsView
+          workspace={selectedWorkspace}
+          project={selectedProject}
+          members={members}
+          currentUserId={user?.id}
+          canManageTeam={canManageTeam}
+          canDeleteWorkspace={canDeleteWorkspace}
+          canDeleteProject={canDeleteProject}
+          onOpenTeam={() => setTeamModalOpen(true)}
+          onUpdateRole={updateMemberRole}
+          onRemoveMember={confirmRemoveMember}
+          onDeleteWorkspace={confirmDeleteWorkspace}
+          onDeleteProject={confirmDeleteProject}
+        />
       ) : (
         <ActivityView activities={activities} />
       )}
@@ -1676,14 +1737,132 @@ function TeamModal({
   );
 }
 
+function SettingsView({
+  workspace,
+  project,
+  members,
+  currentUserId,
+  canManageTeam,
+  canDeleteWorkspace,
+  canDeleteProject,
+  onOpenTeam,
+  onUpdateRole,
+  onRemoveMember,
+  onDeleteWorkspace,
+  onDeleteProject,
+}) {
+  const [error, setError] = React.useState('');
+
+  async function changeRole(member, role) {
+    setError('');
+    try {
+      await onUpdateRole(member.user.id, role);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel alterar a permissao.');
+    }
+  }
+
+  return (
+    <section className="settings-view" aria-label="Configuracoes">
+      <header className="settings-header">
+        <div>
+          <p className="eyebrow">Configuracoes</p>
+          <h2>Administracao do workspace</h2>
+        </div>
+        <span className="settings-icon">
+          <Settings size={20} />
+        </span>
+      </header>
+
+      {error ? <p className="form-error">{error}</p> : null}
+
+      <section className="settings-section" aria-label="Workspace">
+        <div>
+          <p className="eyebrow">Workspace</p>
+          <h3>{workspace?.name || 'Nenhum workspace selecionado'}</h3>
+          <p>Exclusao disponivel apenas para owner. Remove projetos, equipe, convites e tarefas vinculadas.</p>
+        </div>
+        <button type="button" className="secondary-button danger-outline" onClick={onDeleteWorkspace} disabled={!canDeleteWorkspace}>
+          <Trash2 size={17} />
+          Excluir workspace
+        </button>
+      </section>
+
+      <section className="settings-section" aria-label="Projeto">
+        <div>
+          <p className="eyebrow">Projeto</p>
+          <h3>{project?.name || 'Nenhum projeto selecionado'}</h3>
+          <p>Owner e admin podem excluir o projeto atual. A confirmacao pelo nome evita remocoes acidentais.</p>
+        </div>
+        <button type="button" className="secondary-button danger-outline" onClick={onDeleteProject} disabled={!canDeleteProject || !project}>
+          <Trash2 size={17} />
+          Excluir projeto
+        </button>
+      </section>
+
+      <section className="settings-section team-settings" aria-label="Equipe">
+        <div className="settings-section-head">
+          <div>
+            <p className="eyebrow">Equipe</p>
+            <h3>Membros e permissoes</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onOpenTeam} disabled={!workspace}>
+            <Users size={17} />
+            Convidar
+          </button>
+        </div>
+        <div className="member-list">
+          {members.map((member) => {
+            const isSelf = member.user.id === currentUserId;
+            const canEditMember = canManageTeam && member.role !== 'owner' && !isSelf;
+            return (
+              <article key={member.user.id} className="member-row">
+                <span className="member-avatar">{member.user.name.slice(0, 1).toUpperCase()}</span>
+                <div>
+                  <strong>{member.user.name}</strong>
+                  <small>{member.user.email}</small>
+                </div>
+                {canEditMember ? (
+                  <select value={member.role} onChange={(event) => changeRole(member, event.target.value)} aria-label={`Alterar papel de ${member.user.name}`}>
+                    {memberRoles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="role-pill">{member.role}</span>
+                )}
+                {canEditMember ? (
+                  <button type="button" className="icon-button small danger-action" onClick={() => onRemoveMember(member)} aria-label={`Remover ${member.user.name}`}>
+                    <Trash2 size={15} />
+                  </button>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    </section>
+  );
+}
+
 function ConfirmDialog({ dialog, onClose }) {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [confirmationName, setConfirmationName] = React.useState('');
+  const [error, setError] = React.useState('');
+  const requiresName = Boolean(dialog.confirmationName);
+  const confirmationMatches = !requiresName || confirmationName.trim() === dialog.confirmationName;
 
   async function confirm() {
+    if (!confirmationMatches) return;
     setIsSubmitting(true);
+    setError('');
     try {
-      await dialog.onConfirm();
+      await dialog.onConfirm(confirmationName.trim());
       onClose();
+    } catch (confirmError) {
+      setError(confirmError.message || 'Nao foi possivel confirmar.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1699,11 +1878,18 @@ function ConfirmDialog({ dialog, onClose }) {
           </button>
         </header>
         <p>{dialog.message}</p>
+        {requiresName ? (
+          <label className="confirm-field">
+            {dialog.confirmationLabel || 'Digite o nome para confirmar'}
+            <input value={confirmationName} onChange={(event) => setConfirmationName(event.target.value)} autoFocus />
+          </label>
+        ) : null}
+        {error ? <p className="form-error">{error}</p> : null}
         <footer>
           <button type="button" className="secondary-button" onClick={onClose}>
             Cancelar
           </button>
-          <button type="button" className={`primary-button ${dialog.tone === 'danger' ? 'danger-button' : ''}`} onClick={confirm} disabled={isSubmitting}>
+          <button type="button" className={`primary-button ${dialog.tone === 'danger' ? 'danger-button' : ''}`} onClick={confirm} disabled={isSubmitting || !confirmationMatches}>
             {isSubmitting ? 'Aguarde...' : dialog.confirmLabel || 'Confirmar'}
           </button>
         </footer>

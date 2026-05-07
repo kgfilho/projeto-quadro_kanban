@@ -1038,6 +1038,14 @@ select:focus,
   line-height: 1.5;
 }
 
+.confirm-field {
+  display: grid;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .toast-stack {
   position: fixed;
   right: 18px;
@@ -1095,6 +1103,72 @@ select:focus,
 
 .team-modal {
   width: min(720px, 100%);
+}
+
+.settings-view {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+}
+
+.settings-header,
+.settings-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 24px var(--shadow-soft);
+}
+
+.settings-header h2,
+.settings-section h3 {
+  margin-top: 3px;
+}
+
+.settings-section p:not(.eyebrow) {
+  margin-top: 5px;
+  max-width: 720px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.settings-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.team-settings {
+  display: grid;
+  align-items: stretch;
+}
+
+.danger-outline {
+  border-color: rgba(220, 38, 38, 0.28);
+  color: var(--danger);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.danger-outline:hover {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .invite-form {
@@ -1399,8 +1473,18 @@ select:focus,
 
   .invite-form,
   .invite-link-row,
+  .settings-header,
+  .settings-section,
+  .settings-section-head,
   .member-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-header,
+  .settings-section,
+  .settings-section-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .project-strip strong {
