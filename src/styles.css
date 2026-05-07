@@ -907,6 +907,33 @@ select:focus,
   gap: 13px;
 }
 
+.invite-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.09);
+  color: var(--text-primary);
+}
+
+.invite-banner.danger {
+  border-color: rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.invite-banner strong,
+.invite-banner span {
+  display: block;
+}
+
+.invite-banner span {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .auth-form label {
   display: grid;
   gap: 7px;
@@ -1052,6 +1079,36 @@ select:focus,
 .member-list {
   display: grid;
   gap: 10px;
+}
+
+.invite-link-list {
+  display: grid;
+  gap: 8px;
+}
+
+.invite-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+.invite-link-row.inactive {
+  opacity: 0.58;
+}
+
+.invite-link-row strong,
+.invite-link-row small {
+  display: block;
+}
+
+.invite-link-row small {
+  margin-top: 3px;
+  color: var(--text-secondary);
 }
 
 .member-row {
@@ -1264,6 +1321,7 @@ select:focus,
   }
 
   .invite-form,
+  .invite-link-row,
   .member-row {
     grid-template-columns: 1fr;
   }

@@ -81,6 +81,33 @@ export function removeWorkspaceMember(workspaceId, userId) {
   });
 }
 
+export function listWorkspaceInvites(workspaceId) {
+  return request(`/api/workspaces/${workspaceId}/invites`).then((data) => data.invites || []);
+}
+
+export function createWorkspaceInvite(workspaceId, payload) {
+  return request(`/api/workspaces/${workspaceId}/invites`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }).then((data) => data.invite);
+}
+
+export function revokeWorkspaceInvite(workspaceId, inviteId) {
+  return request(`/api/workspaces/${workspaceId}/invites/${inviteId}`, {
+    method: 'DELETE',
+  }).then((data) => data.invite);
+}
+
+export function getInvite(token) {
+  return request(`/api/invites/${token}`).then((data) => data.invite);
+}
+
+export function acceptInvite(token) {
+  return request(`/api/invites/${token}/accept`, {
+    method: 'POST',
+  });
+}
+
 export function listProjects(workspaceId) {
   return request(`/api/workspaces/${workspaceId}/projects`).then((data) => data.projects || []);
 }

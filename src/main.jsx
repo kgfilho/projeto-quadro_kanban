@@ -28,12 +28,16 @@ import {
   X,
 } from 'lucide-react';
 import {
+  acceptInvite,
   createProject,
+  createWorkspaceInvite,
   createWorkspace,
+  getInvite,
   getCurrentUser,
   getProjectBoard,
   inviteWorkspaceMember,
   listProjectActivity,
+  listWorkspaceInvites,
   listProjects,
   listWorkspaceMembers,
   listWorkspaces,
@@ -41,6 +45,7 @@ import {
   logoutUser,
   registerUser,
   removeWorkspaceMember,
+  revokeWorkspaceInvite,
   saveProjectBoard,
   subscribeToProjectEvents,
   updateWorkspaceMember,
@@ -192,6 +197,8 @@ function App() {
   const [workspaces, setWorkspaces] = React.useState([]);
   const [projects, setProjects] = React.useState([]);
   const [members, setMembers] = React.useState([]);
+  const [invites, setInvites] = React.useState([]);
+  const [pendingInvite, setPendingInvite] = React.useState(null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState('');
   const [selectedProjectId, setSelectedProjectId] = React.useState('');
   const [activities, setActivities] = React.useState([]);
@@ -200,6 +207,7 @@ function App() {
   const fileInputRef = React.useRef(null);
   const hydratedRef = React.useRef(false);
   const applyingRemoteRef = React.useRef(false);
+  const inviteTokenRef = React.useRef(new URLSearchParams(window.location.search).get('invite'));
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const showToast = React.useCallback((message, tone = 'success') => {
@@ -260,6 +268,33 @@ function App() {
     return memberItems;
   }, []);
 
+  const loadInvites = React.useCallback(async (workspaceId) => {
+    if (!workspaceId) {
+      setInvites([]);
+      return [];
+    }
+    try {
+      const inviteItems = await listWorkspaceInvites(workspaceId);
+      setInvites(inviteItems);
+      return inviteItems;
+    } catch {
+      setInvites([]);
+      return [];
+    }
+  }, []);
+
+  const acceptPendingInvite = React.useCallback(async () => {
+    const token = inviteTokenRef.current;
+    if (!token) return null;
+    const result = await acceptInvite(token);
+    inviteTokenRef.current = null;
+    setPendingInvite(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('invite');
+    window.history.replaceState({}, '', url);
+    return result.workspace;
+  }, []);
+
   const loadWorkspaceData = React.useCallback(async ({ preferredWorkspaceId, preferredProjectId } = {}) => {
     const workspaceItems = await listWorkspaces();
     setWorkspaces(workspaceItems);
@@ -270,6 +305,7 @@ function App() {
     if (!workspaceId) {
       setProjects([]);
       setMembers([]);
+      setInvites([]);
       setActivities([]);
       setSelectedProjectId('');
       setAreas(defaultAreas);
@@ -279,6 +315,7 @@ function App() {
     }
 
     await loadMembers(workspaceId);
+    await loadInvites(workspaceId);
 
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
@@ -294,7 +331,28 @@ function App() {
     }
 
     await loadProjectBoard(projectId);
-  }, [loadMembers, loadProjectBoard]);
+  }, [loadInvites, loadMembers, loadProjectBoard]);
+
+  React.useEffect(() => {
+    const token = inviteTokenRef.current;
+    if (!token) return undefined;
+
+    let cancelled = false;
+    getInvite(token)
+      .then((invite) => {
+        if (!cancelled) setPendingInvite(invite);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          inviteTokenRef.current = null;
+          setPendingInvite({ error: 'Convite invalido ou expirado.' });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -306,7 +364,8 @@ function App() {
         setUser(session.user);
         setAuthStatus('authenticated');
         setApiStatus('online');
-        await loadWorkspaceData();
+        const acceptedWorkspace = await acceptPendingInvite();
+        await loadWorkspaceData({ preferredWorkspaceId: acceptedWorkspace?.id });
       } catch (error) {
         if (cancelled) return;
         if (error.status === 401) {
@@ -324,7 +383,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadWorkspaceData]);
+  }, [acceptPendingInvite, loadWorkspaceData]);
 
   React.useEffect(() => {
     setBoard((currentBoard) => normalizeBoard(currentBoard, areas));
@@ -643,8 +702,9 @@ function App() {
     setUser(session.user);
     setAuthStatus('authenticated');
     setApiStatus('online');
-    await loadWorkspaceData();
-    showToast(mode === 'register' ? 'Conta criada.' : 'Sessao iniciada.');
+    const acceptedWorkspace = await acceptPendingInvite();
+    await loadWorkspaceData({ preferredWorkspaceId: acceptedWorkspace?.id });
+    showToast(acceptedWorkspace ? 'Convite aceito.' : mode === 'register' ? 'Conta criada.' : 'Sessao iniciada.');
   }
 
   async function handleLogout() {
@@ -656,6 +716,7 @@ function App() {
       setWorkspaces([]);
       setProjects([]);
       setMembers([]);
+      setInvites([]);
       setActivities([]);
       setSelectedWorkspaceId('');
       setSelectedProjectId('');
@@ -670,6 +731,7 @@ function App() {
     setSelectedProjectId('');
     setActivities([]);
     await loadMembers(workspaceId);
+    await loadInvites(workspaceId);
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
     const projectId = projectItems[0]?.id || '';
@@ -720,6 +782,18 @@ function App() {
     showToast('Permissao atualizada.');
   }
 
+  async function createInviteLink(payload) {
+    await createWorkspaceInvite(selectedWorkspaceId, payload);
+    await loadInvites(selectedWorkspaceId);
+    showToast('Link de convite criado.');
+  }
+
+  async function revokeInviteLink(inviteId) {
+    await revokeWorkspaceInvite(selectedWorkspaceId, inviteId);
+    await loadInvites(selectedWorkspaceId);
+    showToast('Convite revogado.', 'warning');
+  }
+
   function confirmRemoveMember(member) {
     setConfirmDialog({
       title: 'Remover membro',
@@ -743,7 +817,7 @@ function App() {
   }
 
   if (authStatus === 'unauthenticated') {
-    return <AuthScreen theme={theme} setTheme={setTheme} onSubmit={handleAuthSubmit} />;
+    return <AuthScreen theme={theme} setTheme={setTheme} pendingInvite={pendingInvite} onSubmit={handleAuthSubmit} />;
   }
 
   return (
@@ -908,10 +982,13 @@ function App() {
         <TeamModal
           currentUserId={user?.id}
           canManage={canManageTeam}
+          invites={invites}
           members={members}
           workspaceName={selectedWorkspace?.name || 'Workspace'}
           onClose={() => setTeamModalOpen(false)}
           onInvite={inviteMember}
+          onCreateInviteLink={createInviteLink}
+          onRevokeInviteLink={revokeInviteLink}
           onUpdateRole={updateMemberRole}
           onRemoveMember={confirmRemoveMember}
         />
@@ -961,7 +1038,7 @@ function UnavailableScreen({ theme, setTheme }) {
   );
 }
 
-function AuthScreen({ theme, setTheme, onSubmit }) {
+function AuthScreen({ theme, setTheme, pendingInvite, onSubmit }) {
   const [mode, setMode] = React.useState('login');
   const [form, setForm] = React.useState({ name: '', email: '', password: '' });
   const [error, setError] = React.useState('');
@@ -1004,6 +1081,16 @@ function AuthScreen({ theme, setTheme, onSubmit }) {
           </div>
         </div>
 
+        {pendingInvite ? (
+          <div className={`invite-banner ${pendingInvite.error ? 'danger' : ''}`}>
+            <Users size={18} />
+            <div>
+              <strong>{pendingInvite.error || `Convite para ${pendingInvite.workspace?.name}`}</strong>
+              {!pendingInvite.error ? <span>Entre ou crie sua conta para acessar como {pendingInvite.role}.</span> : null}
+            </div>
+          </div>
+        ) : null}
+
         <div className="view-switcher auth-switcher" role="tablist" aria-label="Acesso">
           <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>
             Login
@@ -1026,7 +1113,7 @@ function AuthScreen({ theme, setTheme, onSubmit }) {
           </label>
           <label>
             Senha
-            <input type="password" value={form.password} onChange={(event) => updateField('password', event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={8} required />
+            <input type="password" value={form.password} onChange={(event) => updateField('password', event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={10} required />
           </label>
           {error ? <p className="form-error">{error}</p> : null}
           <button type="submit" className="primary-button" disabled={isSubmitting}>
@@ -1430,8 +1517,21 @@ function NameModal({ title, label, placeholder, onClose, onSave }) {
   );
 }
 
-function TeamModal({ currentUserId, canManage, members, workspaceName, onClose, onInvite, onUpdateRole, onRemoveMember }) {
+function TeamModal({
+  currentUserId,
+  canManage,
+  invites,
+  members,
+  workspaceName,
+  onClose,
+  onInvite,
+  onCreateInviteLink,
+  onRevokeInviteLink,
+  onUpdateRole,
+  onRemoveMember,
+}) {
   const [form, setForm] = React.useState({ email: '', role: 'viewer' });
+  const [linkForm, setLinkForm] = React.useState({ role: 'viewer', expiresInDays: 7 });
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -1458,6 +1558,30 @@ function TeamModal({ currentUserId, canManage, members, workspaceName, onClose, 
     }
   }
 
+  async function createLink(event) {
+    event.preventDefault();
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onCreateInviteLink({
+        role: linkForm.role,
+        expiresInDays: Number(linkForm.expiresInDays),
+      });
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel criar o link.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function inviteUrl(invite) {
+    return `${window.location.origin}${window.location.pathname}?invite=${invite.token}`;
+  }
+
+  async function copyInvite(invite) {
+    await navigator.clipboard?.writeText(inviteUrl(invite));
+  }
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="task-modal team-modal" role="dialog" aria-modal="true" aria-labelledby="team-title">
@@ -1472,31 +1596,79 @@ function TeamModal({ currentUserId, canManage, members, workspaceName, onClose, 
         </header>
 
         {canManage ? (
-          <form className="invite-form" onSubmit={submit}>
-            <label>
-              E-mail
-              <input type="email" value={form.email} onChange={(event) => setForm((currentForm) => ({ ...currentForm, email: event.target.value }))} placeholder="pessoa@empresa.com" required />
-            </label>
-            <label>
-              Papel
-              <select value={form.role} onChange={(event) => setForm((currentForm) => ({ ...currentForm, role: event.target.value }))}>
-                {memberRoles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="submit" className="primary-button" disabled={isSubmitting}>
-              <Plus size={18} />
-              {isSubmitting ? 'Adicionando...' : 'Adicionar'}
-            </button>
-          </form>
+          <>
+            <form className="invite-form" onSubmit={submit}>
+              <label>
+                E-mail
+                <input type="email" value={form.email} onChange={(event) => setForm((currentForm) => ({ ...currentForm, email: event.target.value }))} placeholder="pessoa@empresa.com" required />
+              </label>
+              <label>
+                Papel
+                <select value={form.role} onChange={(event) => setForm((currentForm) => ({ ...currentForm, role: event.target.value }))}>
+                  {memberRoles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="primary-button" disabled={isSubmitting}>
+                <Plus size={18} />
+                {isSubmitting ? 'Adicionando...' : 'Adicionar'}
+              </button>
+            </form>
+            <form className="invite-form" onSubmit={createLink}>
+              <label>
+                Link de convite
+                <select value={linkForm.role} onChange={(event) => setLinkForm((currentForm) => ({ ...currentForm, role: event.target.value }))}>
+                  {memberRoles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Expira em
+                <select value={linkForm.expiresInDays} onChange={(event) => setLinkForm((currentForm) => ({ ...currentForm, expiresInDays: event.target.value }))}>
+                  <option value={1}>1 dia</option>
+                  <option value={7}>7 dias</option>
+                  <option value={14}>14 dias</option>
+                  <option value={30}>30 dias</option>
+                </select>
+              </label>
+              <button type="submit" className="secondary-button" disabled={isSubmitting}>
+                <Plus size={18} />
+                Criar link
+              </button>
+            </form>
+          </>
         ) : null}
 
         {error ? <p className="form-error">{error}</p> : null}
 
         <div className="member-list">
+          {canManage && invites.length ? (
+            <div className="invite-link-list">
+              {invites.map((invite) => {
+                const inactive = invite.revokedAt || invite.acceptedAt || new Date(invite.expiresAt) <= new Date();
+                return (
+                  <article key={invite.id} className={`invite-link-row ${inactive ? 'inactive' : ''}`}>
+                    <div>
+                      <strong>{invite.role}</strong>
+                      <small>Expira em {formatActivityDate(invite.expiresAt)}</small>
+                    </div>
+                    <button type="button" className="secondary-button" onClick={() => copyInvite(invite)} disabled={inactive}>
+                      Copiar link
+                    </button>
+                    <button type="button" className="icon-button small danger-action" onClick={() => onRevokeInviteLink(invite.id)} disabled={inactive} aria-label="Revogar convite">
+                      <Trash2 size={15} />
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
           {members.map((member) => {
             const isSelf = member.user.id === currentUserId;
             const canEditMember = canManage && member.role !== 'owner' && !isSelf;
