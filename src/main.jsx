@@ -11,7 +11,6 @@ import {
   Circle,
   CircleDotDashed,
   ClipboardList,
-  Download,
   Edit3,
   FolderKanban,
   LogOut,
@@ -22,7 +21,6 @@ import {
   TimerReset,
   Sun,
   Trash2,
-  Upload,
   User,
   Users,
   X,
@@ -204,7 +202,6 @@ function App() {
   const [activities, setActivities] = React.useState([]);
   const [teamModalOpen, setTeamModalOpen] = React.useState(false);
   const [activeTask, setActiveTask] = React.useState(null);
-  const fileInputRef = React.useRef(null);
   const hydratedRef = React.useRef(false);
   const applyingRemoteRef = React.useRef(false);
   const inviteTokenRef = React.useRef(new URLSearchParams(window.location.search).get('invite'));
@@ -648,56 +645,6 @@ function App() {
     });
   }
 
-  function exportBoard() {
-    const exportData = {
-      app: 'Chronos',
-      version: 1,
-      areas,
-      board,
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'chronos-board.json';
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast('Quadro exportado.');
-  }
-
-  function importBoard(event) {
-    if (!canEditBoard) return;
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const importedData = JSON.parse(reader.result);
-        const importedAreas = importedData.areas ? normalizeAreas(importedData.areas) : areas;
-        const importedBoard = normalizeBoard(importedData.board || importedData, importedAreas);
-        setAreas(importedAreas);
-        setBoard(
-          Object.fromEntries(
-            importedAreas.map((area) => [
-              area.id,
-              sortTasks(
-                importedBoard[area.id]
-                  .filter((task) => task.title && priorities.some((priority) => priority.id === task.priority))
-                  .map(normalizeTask),
-              ),
-            ]),
-          ),
-        );
-        showToast('Quadro importado.');
-      } catch {
-        showToast('Arquivo JSON invalido.', 'danger');
-      } finally {
-        event.target.value = '';
-      }
-    };
-    reader.readAsText(file);
-  }
-
   async function handleAuthSubmit(mode, payload) {
     const action = mode === 'register' ? registerUser : loginUser;
     const session = await action(payload);
@@ -932,18 +879,11 @@ function App() {
             <SquareKanban size={18} />
             Nova area
           </button>
-          <button type="button" className="icon-button" onClick={() => fileInputRef.current.click()} aria-label="Importar quadro" disabled={!canEditBoard}>
-            <Upload size={18} />
-          </button>
-          <button type="button" className="icon-button" onClick={exportBoard} aria-label="Exportar quadro">
-            <Download size={18} />
-          </button>
           <button type="button" className="primary-button" onClick={() => setModalTask({ columnId: defaultColumnId })} disabled={!selectedProjectId || !canEditBoard}>
             <Plus size={18} />
             Nova tarefa
           </button>
         </div>
-        <input ref={fileInputRef} type="file" accept=".json" onChange={importBoard} hidden />
       </section>
 
       {activeView === 'board' ? (
