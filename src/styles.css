@@ -1111,8 +1111,7 @@ select:focus,
   width: 100%;
 }
 
-.settings-header,
-.settings-section {
+.settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1122,6 +1121,23 @@ select:focus,
   border-radius: 8px;
   background: var(--bg-panel);
   box-shadow: 0 10px 24px var(--shadow-soft);
+}
+
+.settings-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 164px 210px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 24px var(--shadow-soft);
+}
+
+.settings-section > .secondary-button {
+  width: 100%;
+  justify-content: center;
 }
 
 .settings-header h2,
@@ -1156,7 +1172,7 @@ select:focus,
 }
 
 .team-settings {
-  display: grid;
+  grid-template-columns: 1fr;
   align-items: stretch;
 }
 
