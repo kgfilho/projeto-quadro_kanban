@@ -1243,6 +1243,7 @@ select:focus,
   display: grid;
   place-items: center;
   padding: 20px;
+  overflow: hidden;
   background: rgba(15, 23, 42, 0.62);
   backdrop-filter: blur(8px);
 }
@@ -1251,11 +1252,13 @@ select:focus,
   display: grid;
   gap: 14px;
   width: min(580px, 100%);
+  max-height: calc(100vh - 40px);
   padding: 20px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-panel);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  overflow-y: auto;
 }
 
 .confirm-dialog {
@@ -1365,6 +1368,25 @@ select:focus,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.task-modal header {
+  position: sticky;
+  top: -20px;
+  z-index: 2;
+  min-height: 38px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-panel);
+}
+
+.task-modal footer {
+  position: sticky;
+  bottom: -20px;
+  z-index: 2;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-panel);
 }
 
 .task-modal label {
