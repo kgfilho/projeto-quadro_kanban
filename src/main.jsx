@@ -31,6 +31,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  API_URL,
   acceptInvite,
   archiveProject,
   createProject,
@@ -1472,7 +1473,7 @@ function UnavailableScreen({ theme, setTheme }) {
         <div>
           <p className="eyebrow">API offline</p>
           <h1>Nao foi possivel conectar</h1>
-          <p>Inicie a Chronos API em `http://127.0.0.1:3333` para acessar os projetos.</p>
+          <p>Verifique se a Chronos API esta acessivel em {API_URL} para acessar os projetos.</p>
         </div>
       </section>
     </main>
