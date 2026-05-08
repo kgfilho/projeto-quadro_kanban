@@ -495,6 +495,20 @@ select:focus,
   min-width: 118px;
 }
 
+.button-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .project-strip strong {
   margin-left: auto;
   color: var(--text-secondary);
@@ -1239,6 +1253,41 @@ select:focus,
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
 }
 
+.archived-modal {
+  width: min(720px, 100%);
+}
+
+.archived-list {
+  display: grid;
+  gap: 10px;
+}
+
+.archived-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+.archived-row strong,
+.archived-row small {
+  display: block;
+}
+
+.archived-row strong {
+  font-weight: 500;
+}
+
+.archived-row small {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .confirm-dialog header,
 .confirm-dialog footer {
   display: flex;
@@ -1835,6 +1884,7 @@ select:focus,
   .settings-header,
   .settings-section,
   .settings-section-head,
+  .archived-row,
   .member-row {
     grid-template-columns: 1fr;
   }

@@ -18,6 +18,7 @@ import {
   LogOut,
   Moon,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   SquareKanban,
@@ -42,6 +43,7 @@ import {
   getCurrentUser,
   getProjectBoard,
   inviteWorkspaceMember,
+  listArchivedProjects,
   listProjectActivity,
   listNotifications,
   listWorkspaceInvites,
@@ -54,6 +56,7 @@ import {
   markNotificationRead,
   registerUser,
   removeWorkspaceMember,
+  restoreProject,
   revokeWorkspaceInvite,
   saveProjectBoard,
   subscribeToProjectEvents,
@@ -285,6 +288,8 @@ function App() {
   const [notifications, setNotifications] = React.useState([]);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
+  const [archivedProjects, setArchivedProjects] = React.useState([]);
+  const [archiveModalOpen, setArchiveModalOpen] = React.useState(false);
   const [teamModalOpen, setTeamModalOpen] = React.useState(false);
   const [activeTask, setActiveTask] = React.useState(null);
   const hydratedRef = React.useRef(false);
@@ -372,6 +377,16 @@ function App() {
     }
   }, []);
 
+  const loadArchivedProjects = React.useCallback(async (workspaceId) => {
+    if (!workspaceId) {
+      setArchivedProjects([]);
+      return [];
+    }
+    const projectItems = await listArchivedProjects(workspaceId);
+    setArchivedProjects(projectItems);
+    return projectItems;
+  }, []);
+
   const acceptPendingInvite = React.useCallback(async () => {
     const token = inviteTokenRef.current;
     if (!token) return null;
@@ -393,6 +408,7 @@ function App() {
 
     if (!workspaceId) {
       setProjects([]);
+      setArchivedProjects([]);
       setMembers([]);
       setInvites([]);
       setActivities([]);
@@ -405,6 +421,7 @@ function App() {
 
     await loadMembers(workspaceId);
     await loadInvites(workspaceId);
+    await loadArchivedProjects(workspaceId);
 
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
@@ -420,7 +437,7 @@ function App() {
     }
 
     await loadProjectBoard(projectId);
-  }, [loadInvites, loadMembers, loadProjectBoard]);
+  }, [loadArchivedProjects, loadInvites, loadMembers, loadProjectBoard]);
 
   React.useEffect(() => {
     const token = inviteTokenRef.current;
@@ -766,6 +783,7 @@ function App() {
     setApiStatus('online');
     const acceptedWorkspace = await acceptPendingInvite();
     await loadWorkspaceData({ preferredWorkspaceId: acceptedWorkspace?.id });
+    await loadNotifications();
     showToast(acceptedWorkspace ? 'Convite aceito.' : mode === 'register' ? 'Conta criada.' : 'Sessao iniciada.');
   }
 
@@ -777,9 +795,14 @@ function App() {
       setAuthStatus('unauthenticated');
       setWorkspaces([]);
       setProjects([]);
+      setArchivedProjects([]);
       setMembers([]);
       setInvites([]);
       setActivities([]);
+      setNotifications([]);
+      setUnreadNotifications(0);
+      setNotificationsOpen(false);
+      setArchiveModalOpen(false);
       setSelectedWorkspaceId('');
       setSelectedProjectId('');
       setAreas(defaultAreas);
@@ -794,6 +817,7 @@ function App() {
     setActivities([]);
     await loadMembers(workspaceId);
     await loadInvites(workspaceId);
+    await loadArchivedProjects(workspaceId);
     const projectItems = await listProjects(workspaceId);
     setProjects(projectItems);
     const projectId = projectItems[0]?.id || '';
@@ -808,6 +832,19 @@ function App() {
   async function handleProjectChange(projectId) {
     if (!projectId) return;
     await loadProjectBoard(projectId);
+  }
+
+  async function openArchiveModal() {
+    setArchiveModalOpen(true);
+    await loadArchivedProjects(selectedWorkspaceId).catch(() => showToast('Nao foi possivel carregar projetos arquivados.', 'warning'));
+  }
+
+  async function restoreArchivedProject(projectId) {
+    const project = await restoreProject(projectId);
+    await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId, preferredProjectId: project.id });
+    setArchiveModalOpen(false);
+    setActiveView('board');
+    showToast('Projeto restaurado.');
   }
 
   async function retryConnection() {
@@ -1135,6 +1172,11 @@ function App() {
           </label>
         </div>
         <div className="context-actions">
+          <button type="button" className="secondary-button" onClick={openArchiveModal} disabled={!selectedWorkspaceId}>
+            <FolderKanban size={17} />
+            Arquivados
+            {archivedProjects.length ? <span className="button-count">{archivedProjects.length}</span> : null}
+          </button>
           <button type="button" className="secondary-button" onClick={() => setTeamModalOpen(true)} disabled={!selectedWorkspaceId}>
             <Users size={17} />
             Equipe
@@ -1303,6 +1345,13 @@ function App() {
           onRevokeInviteLink={revokeInviteLink}
           onUpdateRole={updateMemberRole}
           onRemoveMember={confirmRemoveMember}
+        />
+      ) : null}
+      {archiveModalOpen ? (
+        <ArchivedProjectsModal
+          projects={archivedProjects}
+          onClose={() => setArchiveModalOpen(false)}
+          onRestore={restoreArchivedProject}
         />
       ) : null}
       {confirmDialog ? <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} /> : null}
@@ -1853,6 +1902,71 @@ function NameModal({ title, label, placeholder, initialValue = '', submitLabel =
           </button>
         </footer>
       </form>
+    </div>
+  );
+}
+
+function ArchivedProjectsModal({ projects, onClose, onRestore }) {
+  const [restoringId, setRestoringId] = React.useState('');
+  const [error, setError] = React.useState('');
+
+  async function restore(projectId) {
+    setRestoringId(projectId);
+    setError('');
+    try {
+      await onRestore(projectId);
+    } catch (submitError) {
+      setError(submitError.message || 'Nao foi possivel restaurar o projeto.');
+      setRestoringId('');
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="task-modal archived-modal" role="dialog" aria-modal="true" aria-labelledby="archived-title">
+        <header>
+          <div>
+            <p className="eyebrow">Projetos arquivados</p>
+            <h2 id="archived-title">Arquivo do workspace</h2>
+          </div>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+        {error ? <p className="form-error">{error}</p> : null}
+        {projects.length ? (
+          <div className="archived-list">
+            {projects.map((project) => {
+              const canRestore = ['owner', 'admin'].includes(project.role);
+              return (
+                <article key={project.id} className="archived-row">
+                  <span className="settings-icon">
+                    <FolderKanban size={18} />
+                  </span>
+                  <div>
+                    <strong>{project.name}</strong>
+                    <small>Arquivado em {formatActivityDate(project.archivedAt)} - {project.role}</small>
+                  </div>
+                  <button type="button" className="secondary-button" onClick={() => restore(project.id)} disabled={!canRestore || restoringId === project.id}>
+                    <RotateCcw size={17} />
+                    Restaurar
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="calendar-empty compact">
+            <FolderKanban size={28} />
+            <p>Nenhum projeto arquivado.</p>
+          </div>
+        )}
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Fechar
+          </button>
+        </footer>
+      </section>
     </div>
   );
 }

@@ -185,6 +185,10 @@ export function listProjects(workspaceId) {
   return request(`/api/workspaces/${workspaceId}/projects`).then((data) => data.projects || []);
 }
 
+export function listArchivedProjects(workspaceId) {
+  return request(`/api/workspaces/${workspaceId}/projects/archived`).then((data) => data.projects || []);
+}
+
 export function createProject(workspaceId, payload) {
   return request(`/api/workspaces/${workspaceId}/projects`, {
     method: 'POST',
@@ -201,6 +205,12 @@ export function updateProject(projectId, payload) {
 
 export function archiveProject(projectId) {
   return request(`/api/projects/${projectId}/archive`, {
+    method: 'POST',
+  }).then((data) => data.project);
+}
+
+export function restoreProject(projectId) {
+  return request(`/api/projects/${projectId}/restore`, {
     method: 'POST',
   }).then((data) => data.project);
 }
