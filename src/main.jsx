@@ -1708,12 +1708,6 @@ function TaskCardView({ task, members = [], canEdit = true, onEdit, onOpenCommen
           ) : null}
         </div>
       ) : null}
-      {!isOverlay ? (
-        <button type="button" className="comment-count" onClick={onOpenComments} aria-label={`Abrir comentarios de ${task.title}`}>
-          <MessageSquare size={14} />
-          {(task.comments || []).length} comentario{(task.comments || []).length === 1 ? '' : 's'}
-        </button>
-      ) : null}
       <div className="task-meta">
         <span className="priority-badge">{priority?.label || 'Baixa'}</span>
         {assignee ? (
@@ -1729,14 +1723,24 @@ function TaskCardView({ task, members = [], canEdit = true, onEdit, onOpenCommen
           </span>
         ) : null}
       </div>
-      {!isOverlay && canEdit ? <div className="task-actions">
-        <button type="button" onClick={onEdit} aria-label={`Editar ${task.title}`}>
-          <Edit3 size={16} />
-        </button>
-        <button type="button" onClick={onDelete} aria-label={`Excluir ${task.title}`}>
-          <Trash2 size={16} />
-        </button>
-      </div> : null}
+      {!isOverlay ? (
+        <div className="task-actions">
+          <button type="button" className="comment-count" onClick={onOpenComments} aria-label={`Abrir comentarios de ${task.title}`}>
+            <MessageSquare size={14} />
+            {(task.comments || []).length} comentario{(task.comments || []).length === 1 ? '' : 's'}
+          </button>
+          {canEdit ? (
+            <div className="task-action-buttons">
+              <button type="button" onClick={onEdit} aria-label={`Editar ${task.title}`}>
+                <Edit3 size={16} />
+              </button>
+              <button type="button" onClick={onDelete} aria-label={`Excluir ${task.title}`}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
