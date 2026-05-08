@@ -16,6 +16,7 @@ import {
   FolderKanban,
   ImagePlus,
   LogOut,
+  MessageSquare,
   Moon,
   Plus,
   RotateCcw,
@@ -140,6 +141,7 @@ function normalizeTask(task, columnId = 'todo') {
     assigneeId: task.assigneeId || '',
     tags: Array.isArray(task.tags) ? task.tags : [],
     checklist: Array.isArray(task.checklist) ? task.checklist : [],
+    comments: Array.isArray(task.comments) ? task.comments : [],
   };
 }
 
@@ -1305,7 +1307,7 @@ function App() {
         <ActivityView activities={activities} />
       )}
 
-      {modalTask ? <TaskModal task={modalTask} areas={areas} members={members} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
+      {modalTask ? <TaskModal task={modalTask} areas={areas} members={members} currentUser={user} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
       {areaModal ? <AreaModal area={areaModal.area} onClose={() => setAreaModal(null)} onSave={saveArea} /> : null}
       {nameModal ? (
         <NameModal
@@ -1664,6 +1666,12 @@ function TaskCardView({ task, members = [], canEdit = true, onEdit, onDelete, on
           ) : null}
         </div>
       ) : null}
+      {(task.comments || []).length ? (
+        <span className="comment-count">
+          <MessageSquare size={14} />
+          {task.comments.length} comentario{task.comments.length > 1 ? 's' : ''}
+        </span>
+      ) : null}
       <div className="task-meta">
         <span className="priority-badge">{priority?.label || 'Baixa'}</span>
         {assignee ? (
@@ -1691,7 +1699,7 @@ function TaskCardView({ task, members = [], canEdit = true, onEdit, onDelete, on
   );
 }
 
-function TaskModal({ task, areas, members = [], onClose, onSave }) {
+function TaskModal({ task, areas, members = [], currentUser, onClose, onSave }) {
   const [form, setForm] = React.useState({
     id: task.id,
     title: task.title || '',
@@ -1701,8 +1709,10 @@ function TaskModal({ task, areas, members = [], onClose, onSave }) {
     assigneeId: task.assigneeId || '',
     tagsText: (task.tags || []).join(', '),
     checklistText: (task.checklist || []).map((item) => `${item.done ? '[x]' : '[ ]'} ${item.text}`).join('\n'),
+    comments: task.comments || [],
     columnId: task.columnId || areas[0]?.id || 'todo',
   });
+  const [commentText, setCommentText] = React.useState('');
 
   function updateField(field, value) {
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
@@ -1734,6 +1744,20 @@ function TaskModal({ task, areas, members = [], onClose, onSave }) {
       tags: parseTags(tagsText),
       checklist,
     });
+  }
+
+  function addComment() {
+    const text = commentText.trim();
+    if (!text) return;
+    const comment = {
+      id: `comment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text,
+      userId: currentUser?.id || '',
+      user: currentUser || null,
+      createdAt: new Date().toISOString(),
+    };
+    setForm((currentForm) => ({ ...currentForm, comments: [...(currentForm.comments || []), comment] }));
+    setCommentText('');
   }
 
   return (
@@ -1804,6 +1828,38 @@ function TaskModal({ task, areas, members = [], onClose, onSave }) {
             ))}
           </select>
         </label>
+
+        <section className="comments-section" aria-label="Comentarios da tarefa">
+          <div className="comments-head">
+            <div>
+              <p className="eyebrow">Comentarios</p>
+              <strong>{form.comments.length ? `${form.comments.length} comentario${form.comments.length > 1 ? 's' : ''}` : 'Nenhum comentario'}</strong>
+            </div>
+          </div>
+          {form.comments.length ? (
+            <div className="comment-list">
+              {form.comments.map((comment) => (
+                <article key={comment.id} className="comment-item">
+                  <Avatar user={comment.user || findMemberUser(members, comment.userId)} size="sm" />
+                  <div>
+                    <header>
+                      <strong>{comment.user?.name || findMemberUser(members, comment.userId)?.name || 'Usuario removido'}</strong>
+                      <time dateTime={comment.createdAt}>{formatActivityDate(comment.createdAt)}</time>
+                    </header>
+                    <p>{comment.text}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+          <div className="comment-compose">
+            <textarea value={commentText} onChange={(event) => setCommentText(event.target.value)} rows={3} maxLength={1200} placeholder="Escreva um comentario para a equipe" />
+            <button type="button" className="secondary-button" onClick={addComment} disabled={!commentText.trim()}>
+              <MessageSquare size={17} />
+              Comentar
+            </button>
+          </div>
+        </section>
 
         <footer>
           <button type="button" className="secondary-button" onClick={onClose}>
