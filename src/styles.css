@@ -940,8 +940,16 @@ select:focus,
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.comment-count:hover {
+  color: var(--accent);
 }
 
 .drag-handle {
@@ -1692,24 +1700,8 @@ select:focus,
   gap: 12px;
 }
 
-.comments-section {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-raised);
-}
-
-.comments-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.comments-head strong {
-  font-weight: 500;
+.comments-modal {
+  width: min(640px, 100%);
 }
 
 .comment-list {

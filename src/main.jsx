@@ -270,6 +270,7 @@ function App() {
   const [assigneeFilter, setAssigneeFilter] = React.useState('all');
   const [activeView, setActiveView] = React.useState('board');
   const [modalTask, setModalTask] = React.useState(null);
+  const [commentsTask, setCommentsTask] = React.useState(null);
   const [areaModal, setAreaModal] = React.useState(null);
   const [nameModal, setNameModal] = React.useState(null);
   const [accountModalOpen, setAccountModalOpen] = React.useState(false);
@@ -651,6 +652,34 @@ function App() {
         ]),
       ),
     );
+  }
+
+  function saveTaskComment(taskId, text) {
+    if (!canEditBoard) return;
+    const comment = {
+      id: `comment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text,
+      userId: user?.id || '',
+      user,
+      createdAt: new Date().toISOString(),
+    };
+    setBoard((currentBoard) =>
+      Object.fromEntries(
+        areas.map((area) => [
+          area.id,
+          (currentBoard[area.id] || []).map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  comments: [...(task.comments || []), comment],
+                }
+              : task,
+          ),
+        ]),
+      ),
+    );
+    setCommentsTask((currentTask) => (currentTask?.id === taskId ? { ...currentTask, comments: [...(currentTask.comments || []), comment] } : currentTask));
+    showToast('Comentario adicionado.');
   }
 
   function deleteTask(taskId) {
@@ -1272,6 +1301,7 @@ function App() {
                 canEdit={canEditBoard}
                 onAddTask={() => setModalTask({ columnId: area.id })}
                 onEditTask={(task) => setModalTask({ ...task, columnId: area.id })}
+                onOpenComments={(task) => setCommentsTask({ ...task, columnId: area.id })}
                 onDeleteTask={deleteTask}
                 onToggleChecklistItem={toggleChecklistItem}
                 onMoveArea={moveArea}
@@ -1307,7 +1337,16 @@ function App() {
         <ActivityView activities={activities} />
       )}
 
-      {modalTask ? <TaskModal task={modalTask} areas={areas} members={members} currentUser={user} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
+      {modalTask ? <TaskModal task={modalTask} areas={areas} members={members} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
+      {commentsTask ? (
+        <CommentsModal
+          task={commentsTask}
+          members={members}
+          canComment={canEditBoard}
+          onClose={() => setCommentsTask(null)}
+          onComment={saveTaskComment}
+        />
+      ) : null}
       {areaModal ? <AreaModal area={areaModal.area} onClose={() => setAreaModal(null)} onSave={saveArea} /> : null}
       {nameModal ? (
         <NameModal
@@ -1520,6 +1559,7 @@ function KanbanColumn({
   canEdit,
   onAddTask,
   onEditTask,
+  onOpenComments,
   onDeleteTask,
   onToggleChecklistItem,
   onMoveArea,
@@ -1582,6 +1622,7 @@ function KanbanColumn({
               members={members}
               canEdit={canEdit}
               onEdit={() => onEditTask(task)}
+              onOpenComments={() => onOpenComments(task)}
               onDelete={() => onDeleteTask(task.id)}
               onToggleChecklistItem={onToggleChecklistItem}
             />
@@ -1598,7 +1639,7 @@ function KanbanColumn({
   );
 }
 
-function TaskCard({ task, members = [], canEdit, onEdit, onDelete, onToggleChecklistItem }) {
+function TaskCard({ task, members = [], canEdit, onEdit, onOpenComments, onDelete, onToggleChecklistItem }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -1611,6 +1652,7 @@ function TaskCard({ task, members = [], canEdit, onEdit, onDelete, onToggleCheck
       members={members}
       canEdit={canEdit}
       onEdit={onEdit}
+      onOpenComments={onOpenComments}
       onDelete={onDelete}
       onToggleChecklistItem={onToggleChecklistItem}
       dragHandleProps={{ ...listeners, ...attributes }}
@@ -1621,7 +1663,7 @@ function TaskCard({ task, members = [], canEdit, onEdit, onDelete, onToggleCheck
   );
 }
 
-function TaskCardView({ task, members = [], canEdit = true, onEdit, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
+function TaskCardView({ task, members = [], canEdit = true, onEdit, onOpenComments, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
   const priority = priorities.find((item) => item.id === task.priority);
   const dueStatus = getDueStatus(task.dueDate);
   const progress = checklistProgress(task.checklist);
@@ -1666,11 +1708,11 @@ function TaskCardView({ task, members = [], canEdit = true, onEdit, onDelete, on
           ) : null}
         </div>
       ) : null}
-      {(task.comments || []).length ? (
-        <span className="comment-count">
+      {!isOverlay ? (
+        <button type="button" className="comment-count" onClick={onOpenComments} aria-label={`Abrir comentarios de ${task.title}`}>
           <MessageSquare size={14} />
-          {task.comments.length} comentario{task.comments.length > 1 ? 's' : ''}
-        </span>
+          {(task.comments || []).length} comentario{(task.comments || []).length === 1 ? '' : 's'}
+        </button>
       ) : null}
       <div className="task-meta">
         <span className="priority-badge">{priority?.label || 'Baixa'}</span>
@@ -1699,7 +1741,7 @@ function TaskCardView({ task, members = [], canEdit = true, onEdit, onDelete, on
   );
 }
 
-function TaskModal({ task, areas, members = [], currentUser, onClose, onSave }) {
+function TaskModal({ task, areas, members = [], onClose, onSave }) {
   const [form, setForm] = React.useState({
     id: task.id,
     title: task.title || '',
@@ -1709,10 +1751,8 @@ function TaskModal({ task, areas, members = [], currentUser, onClose, onSave }) 
     assigneeId: task.assigneeId || '',
     tagsText: (task.tags || []).join(', '),
     checklistText: (task.checklist || []).map((item) => `${item.done ? '[x]' : '[ ]'} ${item.text}`).join('\n'),
-    comments: task.comments || [],
     columnId: task.columnId || areas[0]?.id || 'todo',
   });
-  const [commentText, setCommentText] = React.useState('');
 
   function updateField(field, value) {
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
@@ -1743,21 +1783,8 @@ function TaskModal({ task, areas, members = [], currentUser, onClose, onSave }) 
       description: form.description.trim(),
       tags: parseTags(tagsText),
       checklist,
+      comments: task.comments || [],
     });
-  }
-
-  function addComment() {
-    const text = commentText.trim();
-    if (!text) return;
-    const comment = {
-      id: `comment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      text,
-      userId: currentUser?.id || '',
-      user: currentUser || null,
-      createdAt: new Date().toISOString(),
-    };
-    setForm((currentForm) => ({ ...currentForm, comments: [...(currentForm.comments || []), comment] }));
-    setCommentText('');
   }
 
   return (
@@ -1829,38 +1856,6 @@ function TaskModal({ task, areas, members = [], currentUser, onClose, onSave }) 
           </select>
         </label>
 
-        <section className="comments-section" aria-label="Comentarios da tarefa">
-          <div className="comments-head">
-            <div>
-              <p className="eyebrow">Comentarios</p>
-              <strong>{form.comments.length ? `${form.comments.length} comentario${form.comments.length > 1 ? 's' : ''}` : 'Nenhum comentario'}</strong>
-            </div>
-          </div>
-          {form.comments.length ? (
-            <div className="comment-list">
-              {form.comments.map((comment) => (
-                <article key={comment.id} className="comment-item">
-                  <Avatar user={comment.user || findMemberUser(members, comment.userId)} size="sm" />
-                  <div>
-                    <header>
-                      <strong>{comment.user?.name || findMemberUser(members, comment.userId)?.name || 'Usuario removido'}</strong>
-                      <time dateTime={comment.createdAt}>{formatActivityDate(comment.createdAt)}</time>
-                    </header>
-                    <p>{comment.text}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          <div className="comment-compose">
-            <textarea value={commentText} onChange={(event) => setCommentText(event.target.value)} rows={3} maxLength={1200} placeholder="Escreva um comentario para a equipe" />
-            <button type="button" className="secondary-button" onClick={addComment} disabled={!commentText.trim()}>
-              <MessageSquare size={17} />
-              Comentar
-            </button>
-          </div>
-        </section>
-
         <footer>
           <button type="button" className="secondary-button" onClick={onClose}>
             Cancelar
@@ -1871,6 +1866,68 @@ function TaskModal({ task, areas, members = [], currentUser, onClose, onSave }) 
           </button>
         </footer>
       </form>
+    </div>
+  );
+}
+
+function CommentsModal({ task, members = [], canComment, onClose, onComment }) {
+  const [commentText, setCommentText] = React.useState('');
+  const comments = task.comments || [];
+
+  function submit(event) {
+    event.preventDefault();
+    const text = commentText.trim();
+    if (!text) return;
+    onComment(task.id, text);
+    setCommentText('');
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="task-modal comments-modal" role="dialog" aria-modal="true" aria-labelledby="comments-title">
+        <header>
+          <div>
+            <p className="eyebrow">Comentarios</p>
+            <h2 id="comments-title">{task.title}</h2>
+          </div>
+          <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </header>
+
+        {comments.length ? (
+          <div className="comment-list">
+            {comments.map((comment) => {
+              const author = comment.user || findMemberUser(members, comment.userId);
+              return (
+                <article key={comment.id} className="comment-item">
+                  <Avatar user={author} size="sm" />
+                  <div>
+                    <header>
+                      <strong>{author?.name || 'Usuario removido'}</strong>
+                      <time dateTime={comment.createdAt}>{formatActivityDate(comment.createdAt)}</time>
+                    </header>
+                    <p>{comment.text}</p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="calendar-empty compact">
+            <MessageSquare size={28} />
+            <p>Nenhum comentario nesta tarefa.</p>
+          </div>
+        )}
+
+        <form className="comment-compose" onSubmit={submit}>
+          <textarea value={commentText} onChange={(event) => setCommentText(event.target.value)} rows={3} maxLength={1200} placeholder="Escreva um comentario para a equipe" disabled={!canComment} />
+          <button type="submit" className="secondary-button" disabled={!canComment || !commentText.trim()}>
+            <MessageSquare size={17} />
+            Comentar
+          </button>
+        </form>
+      </section>
     </div>
   );
 }
