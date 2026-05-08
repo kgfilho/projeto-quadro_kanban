@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import {
   acceptInvite,
+  archiveProject,
   createProject,
   createWorkspaceInvite,
   createWorkspace,
@@ -953,6 +954,22 @@ function App() {
     });
   }
 
+  function confirmArchiveProject() {
+    if (!selectedProject || !canManageProject) return;
+    setConfirmDialog({
+      title: 'Arquivar projeto',
+      message: `Arquivar "${selectedProject.name}"? Ele saira da lista principal e ficara protegido contra edicoes.`,
+      confirmLabel: 'Arquivar projeto',
+      tone: 'warning',
+      onConfirm: async () => {
+        await archiveProject(selectedProject.id);
+        await loadWorkspaceData({ preferredWorkspaceId: selectedWorkspaceId });
+        setActiveView('board');
+        showToast('Projeto arquivado.', 'warning');
+      },
+    });
+  }
+
   function confirmDeleteWorkspace() {
     if (!selectedWorkspace || !canDeleteWorkspace) return;
     setConfirmDialog({
@@ -1181,6 +1198,7 @@ function App() {
           onOpenTeam={() => setTeamModalOpen(true)}
           onRenameWorkspace={openRenameWorkspaceModal}
           onRenameProject={openRenameProjectModal}
+          onArchiveProject={confirmArchiveProject}
           onUpdateRole={updateMemberRole}
           onRemoveMember={confirmRemoveMember}
           onDeleteWorkspace={confirmDeleteWorkspace}
@@ -1989,6 +2007,7 @@ function SettingsView({
   onOpenTeam,
   onRenameWorkspace,
   onRenameProject,
+  onArchiveProject,
   onUpdateRole,
   onRemoveMember,
   onDeleteWorkspace,
@@ -2039,11 +2058,15 @@ function SettingsView({
         <div>
           <p className="eyebrow">Projeto</p>
           <h3>{project?.name || 'Nenhum projeto selecionado'}</h3>
-          <p>Owner e admin podem renomear ou excluir o projeto atual.</p>
+          <p>Owner e admin podem renomear ou arquivar. Exclusao definitiva fica disponivel como ultima etapa.</p>
         </div>
         <button type="button" className="secondary-button" onClick={onRenameProject} disabled={!project || !canManageProject}>
           <Edit3 size={17} />
           Renomear
+        </button>
+        <button type="button" className="secondary-button" onClick={onArchiveProject} disabled={!project || !canManageProject}>
+          <FolderKanban size={17} />
+          Arquivar
         </button>
         <button type="button" className="secondary-button danger-outline" onClick={onDeleteProject} disabled={!canDeleteProject || !project}>
           <Trash2 size={17} />

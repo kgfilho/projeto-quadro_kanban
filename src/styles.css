@@ -1228,7 +1228,7 @@ select:focus,
 
 .settings-section {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 164px 210px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 164px);
   align-items: center;
   gap: 16px;
   padding: 16px;

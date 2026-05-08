@@ -183,6 +183,12 @@ export function updateProject(projectId, payload) {
   }).then((data) => data.project);
 }
 
+export function archiveProject(projectId) {
+  return request(`/api/projects/${projectId}/archive`, {
+    method: 'POST',
+  }).then((data) => data.project);
+}
+
 export function deleteProject(projectId, payload) {
   return request(`/api/projects/${projectId}`, {
     method: 'DELETE',
