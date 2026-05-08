@@ -298,6 +298,8 @@ function App() {
   const hydratedRef = React.useRef(false);
   const applyingRemoteRef = React.useRef(false);
   const inviteTokenRef = React.useRef(new URLSearchParams(window.location.search).get('invite'));
+  const areasRef = React.useRef(areas);
+  const boardRef = React.useRef(board);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const showToast = React.useCallback((message, tone = 'success') => {
@@ -500,6 +502,14 @@ function App() {
     setBoard((currentBoard) => normalizeBoard(currentBoard, areas));
   }, [areas]);
 
+  React.useEffect(() => {
+    areasRef.current = areas;
+  }, [areas]);
+
+  React.useEffect(() => {
+    boardRef.current = board;
+  }, [board]);
+
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const connectionReadOnly = authStatus === 'authenticated' && Boolean(selectedProjectId) && (apiStatus !== 'online' || realtimeStatus !== 'online');
@@ -508,6 +518,36 @@ function App() {
   const canManageProject = !connectionReadOnly && ['owner', 'admin'].includes(selectedProject?.role);
   const canDeleteWorkspace = !connectionReadOnly && selectedWorkspace?.role === 'owner';
   const canDeleteProject = canManageProject;
+
+  const persistBoardSnapshot = React.useCallback(async (nextAreas, nextBoard) => {
+    if (
+      applyingRemoteRef.current ||
+      !hydratedRef.current ||
+      apiStatus !== 'online' ||
+      authStatus !== 'authenticated' ||
+      !selectedProjectId ||
+      !canEditBoard
+    ) return;
+
+    await saveProjectBoard(selectedProjectId, {
+      areas: nextAreas,
+      board: nextBoard,
+    });
+  }, [apiStatus, authStatus, canEditBoard, selectedProjectId]);
+
+  const syncBoardSnapshot = React.useCallback((nextAreas, nextBoard) => {
+    areasRef.current = nextAreas;
+    boardRef.current = nextBoard;
+    setAreas(nextAreas);
+    setBoard(nextBoard);
+    persistBoardSnapshot(nextAreas, nextBoard).catch(() => {
+      showToast('Nao foi possivel sincronizar as ultimas alteracoes.', 'warning');
+    });
+  }, [persistBoardSnapshot, showToast]);
+
+  const flushBoardChanges = React.useCallback(async () => {
+    await persistBoardSnapshot(areasRef.current, boardRef.current);
+  }, [persistBoardSnapshot]);
 
   React.useEffect(() => {
     if (authStatus !== 'authenticated' || !selectedProjectId) {
@@ -615,33 +655,30 @@ function App() {
   function saveTask(taskData) {
     if (!canEditBoard) return;
     const normalizedTask = normalizeTask(taskData);
-    setBoard((currentBoard) => {
-      const nextBoard = normalizeBoard(currentBoard, areas);
-      if (normalizedTask.id) {
-        const withoutTask = Object.fromEntries(
-          areas.map((area) => [area.id, nextBoard[area.id].filter((task) => task.id !== normalizedTask.id)]),
-        );
-        withoutTask[normalizedTask.columnId] = sortTasks([...withoutTask[normalizedTask.columnId], normalizedTask]);
-        return withoutTask;
-      }
-
+    const nextBoard = normalizeBoard(boardRef.current, areasRef.current);
+    if (normalizedTask.id) {
+      const withoutTask = Object.fromEntries(
+        areasRef.current.map((area) => [area.id, nextBoard[area.id].filter((task) => task.id !== normalizedTask.id)]),
+      );
+      withoutTask[normalizedTask.columnId] = sortTasks([...withoutTask[normalizedTask.columnId], normalizedTask]);
+      syncBoardSnapshot(areasRef.current, withoutTask);
+    } else {
       const newTask = { ...normalizedTask, id: createTaskId() };
-      return {
+      syncBoardSnapshot(areasRef.current, {
         ...nextBoard,
         [newTask.columnId]: sortTasks([...nextBoard[newTask.columnId], newTask]),
-      };
-    });
+      });
+    }
     setModalTask(null);
     showToast(normalizedTask.id ? 'Tarefa atualizada.' : 'Tarefa criada.');
   }
 
   function toggleChecklistItem(taskId, itemId) {
     if (!canEditBoard) return;
-    setBoard((currentBoard) =>
-      Object.fromEntries(
-        areas.map((area) => [
+    const nextBoard = Object.fromEntries(
+        areasRef.current.map((area) => [
           area.id,
-          (currentBoard[area.id] || []).map((task) =>
+          (boardRef.current[area.id] || []).map((task) =>
             task.id === taskId
               ? {
                   ...task,
@@ -650,8 +687,8 @@ function App() {
               : task,
           ),
         ]),
-      ),
     );
+    syncBoardSnapshot(areasRef.current, nextBoard);
   }
 
   function saveTaskComment(taskId, text) {
@@ -663,11 +700,10 @@ function App() {
       user,
       createdAt: new Date().toISOString(),
     };
-    setBoard((currentBoard) =>
-      Object.fromEntries(
-        areas.map((area) => [
+    const nextBoard = Object.fromEntries(
+        areasRef.current.map((area) => [
           area.id,
-          (currentBoard[area.id] || []).map((task) =>
+          (boardRef.current[area.id] || []).map((task) =>
             task.id === taskId
               ? {
                   ...task,
@@ -676,8 +712,8 @@ function App() {
               : task,
           ),
         ]),
-      ),
     );
+    syncBoardSnapshot(areasRef.current, nextBoard);
     setCommentsTask((currentTask) => (currentTask?.id === taskId ? { ...currentTask, comments: [...(currentTask.comments || []), comment] } : currentTask));
     showToast('Comentario adicionado.');
   }
@@ -691,9 +727,10 @@ function App() {
       confirmLabel: 'Excluir',
       tone: 'danger',
       onConfirm: () => {
-        setBoard((currentBoard) =>
-          Object.fromEntries(areas.map((area) => [area.id, (currentBoard[area.id] || []).filter((item) => item.id !== taskId)])),
+        const nextBoard = Object.fromEntries(
+          areasRef.current.map((area) => [area.id, (boardRef.current[area.id] || []).filter((item) => item.id !== taskId)]),
         );
+        syncBoardSnapshot(areasRef.current, nextBoard);
         showToast('Tarefa excluida.', 'danger');
       },
     });
@@ -704,13 +741,12 @@ function App() {
     const title = areaData.title.trim();
     if (!title) return;
     if (areaData.id) {
-      setAreas((currentAreas) =>
-        currentAreas.map((area) =>
+      const nextAreas = areasRef.current.map((area) =>
           area.id === areaData.id
             ? { ...area, title, helper: areaData.helper.trim() || 'Area personalizada' }
             : area,
-        ),
       );
+      syncBoardSnapshot(nextAreas, normalizeBoard(boardRef.current, nextAreas));
       setAreaModal(null);
       showToast('Area atualizada.');
       return;
@@ -723,7 +759,8 @@ function App() {
       icon: 'custom',
       locked: false,
     };
-    setAreas((currentAreas) => [...currentAreas, newArea]);
+    const nextAreas = [...areasRef.current, newArea];
+    syncBoardSnapshot(nextAreas, { ...normalizeBoard(boardRef.current, areasRef.current), [newArea.id]: [] });
     setAreaModal(null);
     showToast('Area criada.');
   }
@@ -742,11 +779,9 @@ function App() {
       confirmLabel: 'Remover',
       tone: 'danger',
       onConfirm: () => {
-        setAreas((currentAreas) => currentAreas.filter((item) => item.id !== areaId));
-        setBoard((currentBoard) => {
-          const { [areaId]: _removed, ...nextBoard } = currentBoard;
-          return nextBoard;
-        });
+        const nextAreas = areasRef.current.filter((item) => item.id !== areaId);
+        const { [areaId]: _removed, ...nextBoard } = boardRef.current;
+        syncBoardSnapshot(nextAreas, normalizeBoard(nextBoard, nextAreas));
         showToast('Area removida.', 'danger');
       },
     });
@@ -757,7 +792,8 @@ function App() {
     const currentIndex = areas.findIndex((area) => area.id === areaId);
     const targetIndex = currentIndex + direction;
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= areas.length) return;
-    setAreas((currentAreas) => arrayMove(currentAreas, currentIndex, targetIndex));
+    const nextAreas = arrayMove(areasRef.current, currentIndex, targetIndex);
+    syncBoardSnapshot(nextAreas, normalizeBoard(boardRef.current, nextAreas));
   }
 
   function handleDragStart(event) {
@@ -772,36 +808,36 @@ function App() {
     setActiveTask(null);
     if (!over) return;
 
-    setBoard((currentBoard) => {
-      const sourceColumn = findTaskColumn(currentBoard, areas, active.id);
-      const targetColumn = areas.some((area) => area.id === over.id) ? over.id : findTaskColumn(currentBoard, areas, over.id);
+    const currentBoard = boardRef.current;
+    const sourceColumn = findTaskColumn(currentBoard, areasRef.current, active.id);
+    const targetColumn = areasRef.current.some((area) => area.id === over.id) ? over.id : findTaskColumn(currentBoard, areasRef.current, over.id);
 
-      if (!sourceColumn || !targetColumn) return currentBoard;
-      if (sourceColumn === targetColumn) {
-        const sourceTasks = currentBoard[sourceColumn] || [];
-        const activeIndex = sourceTasks.findIndex((task) => task.id === active.id);
-        const overIndex = sourceTasks.findIndex((task) => task.id === over.id);
-        if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) return currentBoard;
-        return {
+    if (!sourceColumn || !targetColumn) return;
+    if (sourceColumn === targetColumn) {
+      const sourceTasks = currentBoard[sourceColumn] || [];
+      const activeIndex = sourceTasks.findIndex((task) => task.id === active.id);
+      const overIndex = sourceTasks.findIndex((task) => task.id === over.id);
+      if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) return;
+      syncBoardSnapshot(areasRef.current, {
           ...currentBoard,
           [sourceColumn]: arrayMove(sourceTasks, activeIndex, overIndex),
-        };
-      }
+      });
+      return;
+    }
 
-      const sourceTasks = currentBoard[sourceColumn] || [];
-      const targetTasks = currentBoard[targetColumn] || [];
-      const movingTask = sourceTasks.find((task) => task.id === active.id);
-      if (!movingTask) return currentBoard;
-      const targetIndex = targetTasks.findIndex((task) => task.id === over.id);
-      const insertIndex = targetIndex >= 0 ? targetIndex : targetTasks.length;
-      const nextTargetTasks = [...targetTasks];
-      nextTargetTasks.splice(insertIndex, 0, { ...movingTask, columnId: targetColumn });
+    const sourceTasks = currentBoard[sourceColumn] || [];
+    const targetTasks = currentBoard[targetColumn] || [];
+    const movingTask = sourceTasks.find((task) => task.id === active.id);
+    if (!movingTask) return;
+    const targetIndex = targetTasks.findIndex((task) => task.id === over.id);
+    const insertIndex = targetIndex >= 0 ? targetIndex : targetTasks.length;
+    const nextTargetTasks = [...targetTasks];
+    nextTargetTasks.splice(insertIndex, 0, { ...movingTask, columnId: targetColumn });
 
-      return {
+    syncBoardSnapshot(areasRef.current, {
         ...currentBoard,
         [sourceColumn]: (currentBoard[sourceColumn] || []).filter((task) => task.id !== active.id),
         [targetColumn]: nextTargetTasks,
-      };
     });
   }
 
@@ -820,6 +856,7 @@ function App() {
 
   async function handleLogout() {
     try {
+      await flushBoardChanges().catch(() => showToast('Nao foi possivel sincronizar as ultimas alteracoes.', 'warning'));
       await logoutUser();
     } finally {
       setUser(null);
@@ -843,6 +880,7 @@ function App() {
   }
 
   async function handleWorkspaceChange(workspaceId) {
+    await flushBoardChanges().catch(() => showToast('Nao foi possivel sincronizar as ultimas alteracoes.', 'warning'));
     setSelectedWorkspaceId(workspaceId);
     setSelectedProjectId('');
     setActivities([]);
@@ -862,6 +900,7 @@ function App() {
 
   async function handleProjectChange(projectId) {
     if (!projectId) return;
+    await flushBoardChanges().catch(() => showToast('Nao foi possivel sincronizar as ultimas alteracoes.', 'warning'));
     await loadProjectBoard(projectId);
   }
 

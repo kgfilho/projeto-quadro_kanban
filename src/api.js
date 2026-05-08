@@ -3,13 +3,14 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3333';
 async function request(path, options = {}) {
   const hasBody = typeof options.body !== 'undefined';
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const { headers: customHeaders, ...requestOptions } = options;
   const response = await fetch(`${API_URL}${path}`, {
+    ...requestOptions,
     credentials: 'include',
     headers: {
       ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
+      ...customHeaders,
     },
-    ...options,
   });
 
   const data = await response.json().catch(() => null);
