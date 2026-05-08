@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowLeft,
   ArrowRight,
+  Bell,
   Calendar,
   CheckCircle2,
   Circle,
@@ -42,12 +43,15 @@ import {
   getProjectBoard,
   inviteWorkspaceMember,
   listProjectActivity,
+  listNotifications,
   listWorkspaceInvites,
   listProjects,
   listWorkspaceMembers,
   listWorkspaces,
   loginUser,
   logoutUser,
+  markAllNotificationsRead,
+  markNotificationRead,
   registerUser,
   removeWorkspaceMember,
   revokeWorkspaceInvite,
@@ -278,6 +282,9 @@ function App() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState('');
   const [selectedProjectId, setSelectedProjectId] = React.useState('');
   const [activities, setActivities] = React.useState([]);
+  const [notifications, setNotifications] = React.useState([]);
+  const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [teamModalOpen, setTeamModalOpen] = React.useState(false);
   const [activeTask, setActiveTask] = React.useState(null);
   const hydratedRef = React.useRef(false);
@@ -301,6 +308,13 @@ function App() {
     const activityItems = await listProjectActivity(projectId);
     setActivities(activityItems);
     return activityItems;
+  }, []);
+
+  const loadNotifications = React.useCallback(async () => {
+    const data = await listNotifications();
+    setNotifications(data.notifications || []);
+    setUnreadNotifications(data.unreadCount || 0);
+    return data;
   }, []);
 
   const loadProjectBoard = React.useCallback(async (projectId) => {
@@ -442,6 +456,7 @@ function App() {
         setApiStatus('online');
         const acceptedWorkspace = await acceptPendingInvite();
         await loadWorkspaceData({ preferredWorkspaceId: acceptedWorkspace?.id });
+        await loadNotifications();
       } catch (error) {
         if (cancelled) return;
         if (error.status === 401) {
@@ -459,7 +474,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [acceptPendingInvite, loadWorkspaceData]);
+  }, [acceptPendingInvite, loadNotifications, loadWorkspaceData]);
 
   React.useEffect(() => {
     setBoard((currentBoard) => normalizeBoard(currentBoard, areas));
@@ -548,6 +563,14 @@ function App() {
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  React.useEffect(() => {
+    if (authStatus !== 'authenticated') return undefined;
+    const intervalId = window.setInterval(() => {
+      loadNotifications().catch(() => {});
+    }, 45000);
+    return () => window.clearInterval(intervalId);
+  }, [authStatus, loadNotifications]);
 
   const allTasks = areas.flatMap((area) => (board[area.id] || []).map((task) => ({ ...task, columnId: area.id })));
   const calendarTasks = allTasks
@@ -922,6 +945,23 @@ function App() {
     showToast('Convite revogado.', 'warning');
   }
 
+  async function openNotifications() {
+    setNotificationsOpen((isOpen) => !isOpen);
+    if (!notificationsOpen) {
+      await loadNotifications().catch(() => showToast('Nao foi possivel carregar notificacoes.', 'warning'));
+    }
+  }
+
+  async function readNotification(activityId) {
+    await markNotificationRead(activityId);
+    await loadNotifications();
+  }
+
+  async function readAllNotifications() {
+    await markAllNotificationsRead();
+    await loadNotifications();
+  }
+
   function confirmRemoveMember(member) {
     setConfirmDialog({
       title: 'Remover membro',
@@ -1019,6 +1059,21 @@ function App() {
           <span className={`api-status realtime ${realtimeStatus}`}>
             {realtimeStatus === 'online' ? 'Tempo real' : realtimeStatus === 'offline' ? 'Sem tempo real' : realtimeStatus === 'connecting' ? 'Conectando realtime' : 'Realtime ocioso'}
           </span>
+          <div className="notification-wrap">
+            <button type="button" className="icon-button notification-button" onClick={openNotifications} aria-label="Abrir notificacoes">
+              <Bell size={18} />
+              {unreadNotifications ? <span>{unreadNotifications > 9 ? '9+' : unreadNotifications}</span> : null}
+            </button>
+            {notificationsOpen ? (
+              <NotificationPanel
+                notifications={notifications}
+                unreadCount={unreadNotifications}
+                onRead={readNotification}
+                onReadAll={readAllNotifications}
+                onClose={() => setNotificationsOpen(false)}
+              />
+            ) : null}
+          </div>
           <button type="button" className="user-chip" onClick={() => setAccountModalOpen(true)} aria-label="Abrir minha conta">
             <Avatar user={user} size="sm" />
             {user?.name || user?.email}
@@ -2468,6 +2523,50 @@ function ActivityView({ activities }) {
             </div>
           </article>
         ))
+      )}
+    </section>
+  );
+}
+
+function NotificationPanel({ notifications, unreadCount, onRead, onReadAll, onClose }) {
+  return (
+    <section className="notification-panel" aria-label="Notificacoes">
+      <header>
+        <div>
+          <p className="eyebrow">Notificacoes</p>
+          <h2>{unreadCount ? `${unreadCount} nao lida${unreadCount > 1 ? 's' : ''}` : 'Tudo em dia'}</h2>
+        </div>
+        <button type="button" className="icon-button small" onClick={onClose} aria-label="Fechar notificacoes">
+          <X size={16} />
+        </button>
+      </header>
+      {notifications.length ? (
+        <>
+          <button type="button" className="secondary-button notification-read-all" onClick={onReadAll} disabled={!unreadCount}>
+            Marcar todas como lidas
+          </button>
+          <div className="notification-list">
+            {notifications.map((notification) => (
+              <button
+                key={notification.id}
+                type="button"
+                className={`notification-item ${notification.readAt ? 'read' : 'unread'}`}
+                onClick={() => onRead(notification.id)}
+              >
+                {notification.user ? <Avatar user={notification.user} size="sm" /> : <span className="activity-marker" />}
+                <span>
+                  <strong>{notification.description}</strong>
+                  <small>{notification.user?.name || 'Sistema'} - {formatActivityDate(notification.createdAt)}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="notification-empty">
+          <Bell size={22} />
+          <p>Nenhuma notificacao importante ainda.</p>
+        </div>
       )}
     </section>
   );

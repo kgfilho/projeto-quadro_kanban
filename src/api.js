@@ -89,6 +89,22 @@ export function updateCurrentUserPassword(payload) {
   });
 }
 
+export function listNotifications() {
+  return request('/api/notifications');
+}
+
+export function markNotificationRead(activityId) {
+  return request(`/api/notifications/${activityId}/read`, {
+    method: 'POST',
+  });
+}
+
+export function markAllNotificationsRead() {
+  return request('/api/notifications/read-all', {
+    method: 'POST',
+  });
+}
+
 export function listWorkspaces() {
   return request('/api/workspaces').then((data) => data.workspaces || []);
 }
