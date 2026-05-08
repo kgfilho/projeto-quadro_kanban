@@ -129,6 +129,7 @@ function normalizeTask(task, columnId = 'todo') {
   return {
     ...task,
     columnId: task.columnId || columnId,
+    assigneeId: task.assigneeId || '',
     tags: Array.isArray(task.tags) ? task.tags : [],
     checklist: Array.isArray(task.checklist) ? task.checklist : [],
   };
@@ -194,6 +195,11 @@ function getInitials(name = '') {
   return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase();
 }
 
+function findMemberUser(members, userId) {
+  if (!userId) return null;
+  return members.find((member) => member.user.id === userId)?.user || null;
+}
+
 function Avatar({ user, size = 'md' }) {
   const name = user?.name || user?.email || 'Usuario';
   const avatarSrc = getAssetUrl(user?.avatarUrl);
@@ -251,6 +257,7 @@ function App() {
   const [theme, setTheme] = React.useState('light');
   const [query, setQuery] = React.useState('');
   const [priorityFilter, setPriorityFilter] = React.useState('all');
+  const [assigneeFilter, setAssigneeFilter] = React.useState('all');
   const [activeView, setActiveView] = React.useState('board');
   const [modalTask, setModalTask] = React.useState(null);
   const [areaModal, setAreaModal] = React.useState(null);
@@ -552,6 +559,7 @@ function App() {
   const stats = {
     total: allTasks.length,
     urgent: allTasks.filter((task) => task.priority === 'prioridade-alta').length,
+    mine: allTasks.filter((task) => task.assigneeId === user?.id).length,
     dueSoon: allTasks.filter((task) => isDueSoon(task.dueDate)).length,
     overdue: allTasks.filter((task) => getDueStatus(task.dueDate)?.type === 'overdue').length,
     done: doneAreaIds.reduce((total, areaId) => total + (board[areaId] || []).length, 0),
@@ -1113,6 +1121,10 @@ function App() {
               </option>
             ))}
           </select>
+          <select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} aria-label="Filtrar por responsavel">
+            <option value="all">Todas as tarefas</option>
+            <option value="mine">Minhas tarefas ({stats.mine})</option>
+          </select>
           <div className="toolbar-actions">
             <button type="button" className="secondary-button" onClick={() => setAreaModal({ mode: 'create' })} disabled={!selectedProjectId || !canEditBoard}>
               <SquareKanban size={18} />
@@ -1138,6 +1150,9 @@ function App() {
                 tasks={board[area.id] || []}
                 query={query}
                 priorityFilter={priorityFilter}
+                assigneeFilter={assigneeFilter}
+                currentUserId={user?.id}
+                members={members}
                 canEdit={canEditBoard}
                 onAddTask={() => setModalTask({ columnId: area.id })}
                 onEditTask={(task) => setModalTask({ ...task, columnId: area.id })}
@@ -1149,7 +1164,7 @@ function App() {
               />
             ))}
           </section>
-          <DragOverlay>{activeTask ? <TaskCardView task={activeTask} isOverlay /> : null}</DragOverlay>
+          <DragOverlay>{activeTask ? <TaskCardView task={activeTask} members={members} isOverlay /> : null}</DragOverlay>
         </DndContext>
       ) : activeView === 'calendar' ? (
         <CalendarView tasks={calendarTasks} areas={areas} onEditTask={(task) => (canEditBoard ? setModalTask(task) : null)} />
@@ -1175,7 +1190,7 @@ function App() {
         <ActivityView activities={activities} />
       )}
 
-      {modalTask ? <TaskModal task={modalTask} areas={areas} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
+      {modalTask ? <TaskModal task={modalTask} areas={areas} members={members} onClose={() => setModalTask(null)} onSave={saveTask} /> : null}
       {areaModal ? <AreaModal area={areaModal.area} onClose={() => setAreaModal(null)} onSave={saveArea} /> : null}
       {nameModal ? (
         <NameModal
@@ -1375,6 +1390,9 @@ function KanbanColumn({
   tasks,
   query,
   priorityFilter,
+  assigneeFilter,
+  currentUserId,
+  members,
   canEdit,
   onAddTask,
   onEditTask,
@@ -1388,9 +1406,11 @@ function KanbanColumn({
   const { isOver, setNodeRef } = useDroppable({ id: area.id });
   const normalizedQuery = query.toLowerCase();
   const visibleTasks = tasks.filter((task) => {
-    const matchesText = `${task.title} ${task.description} ${(task.tags || []).join(' ')}`.toLowerCase().includes(normalizedQuery);
+    const assignee = findMemberUser(members, task.assigneeId);
+    const matchesText = `${task.title} ${task.description} ${assignee?.name || ''} ${(task.tags || []).join(' ')}`.toLowerCase().includes(normalizedQuery);
     const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
-    return matchesText && matchesPriority;
+    const matchesAssignee = assigneeFilter === 'all' || task.assigneeId === currentUserId;
+    return matchesText && matchesPriority && matchesAssignee;
   });
 
   return (
@@ -1435,6 +1455,7 @@ function KanbanColumn({
             <TaskCard
               key={task.id}
               task={task}
+              members={members}
               canEdit={canEdit}
               onEdit={() => onEditTask(task)}
               onDelete={() => onDeleteTask(task.id)}
@@ -1453,7 +1474,7 @@ function KanbanColumn({
   );
 }
 
-function TaskCard({ task, canEdit, onEdit, onDelete, onToggleChecklistItem }) {
+function TaskCard({ task, members = [], canEdit, onEdit, onDelete, onToggleChecklistItem }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -1463,6 +1484,7 @@ function TaskCard({ task, canEdit, onEdit, onDelete, onToggleChecklistItem }) {
   return (
     <TaskCardView
       task={task}
+      members={members}
       canEdit={canEdit}
       onEdit={onEdit}
       onDelete={onDelete}
@@ -1475,10 +1497,11 @@ function TaskCard({ task, canEdit, onEdit, onDelete, onToggleChecklistItem }) {
   );
 }
 
-function TaskCardView({ task, canEdit = true, onEdit, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
+function TaskCardView({ task, members = [], canEdit = true, onEdit, onDelete, onToggleChecklistItem, dragHandleProps = {}, innerRef, style, isDragging = false, isOverlay = false }) {
   const priority = priorities.find((item) => item.id === task.priority);
   const dueStatus = getDueStatus(task.dueDate);
   const progress = checklistProgress(task.checklist);
+  const assignee = findMemberUser(members, task.assigneeId);
 
   return (
     <article
@@ -1521,6 +1544,12 @@ function TaskCardView({ task, canEdit = true, onEdit, onDelete, onToggleChecklis
       ) : null}
       <div className="task-meta">
         <span className="priority-badge">{priority?.label || 'Baixa'}</span>
+        {assignee ? (
+          <span className="assignee-badge">
+            <Avatar user={assignee} size="sm" />
+            {assignee.name}
+          </span>
+        ) : null}
         {dueStatus ? (
           <span className={`due-date ${dueStatus.type}`}>
             <Calendar size={14} />
@@ -1540,13 +1569,14 @@ function TaskCardView({ task, canEdit = true, onEdit, onDelete, onToggleChecklis
   );
 }
 
-function TaskModal({ task, areas, onClose, onSave }) {
+function TaskModal({ task, areas, members = [], onClose, onSave }) {
   const [form, setForm] = React.useState({
     id: task.id,
     title: task.title || '',
     description: task.description || '',
     priority: task.priority || 'prioridade-baixa',
     dueDate: task.dueDate || '',
+    assigneeId: task.assigneeId || '',
     tagsText: (task.tags || []).join(', '),
     checklistText: (task.checklist || []).map((item) => `${item.done ? '[x]' : '[ ]'} ${item.text}`).join('\n'),
     columnId: task.columnId || areas[0]?.id || 'todo',
@@ -1618,6 +1648,17 @@ function TaskModal({ task, areas, onClose, onSave }) {
             <input type="date" value={form.dueDate} onChange={(event) => updateField('dueDate', event.target.value)} />
           </label>
         </div>
+        <label>
+          Responsavel
+          <select value={form.assigneeId} onChange={(event) => updateField('assigneeId', event.target.value)}>
+            <option value="">Sem responsavel</option>
+            {members.map((member) => (
+              <option key={member.user.id} value={member.user.id}>
+                {member.user.name} ({member.role})
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           Tags
           <input value={form.tagsText} onChange={(event) => updateField('tagsText', event.target.value)} placeholder="Ex: cliente, urgente, design" />

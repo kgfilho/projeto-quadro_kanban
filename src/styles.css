@@ -510,7 +510,7 @@ select:focus,
 
 .board-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 220px auto;
+  grid-template-columns: minmax(260px, 1fr) 220px 190px auto;
   gap: 10px;
   align-items: center;
   margin-bottom: 18px;
@@ -853,6 +853,7 @@ select:focus,
 }
 
 .priority-badge,
+.assignee-badge,
 .due-date {
   display: inline-flex;
   align-items: center;
@@ -862,6 +863,20 @@ select:focus,
   padding: 0 10px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.assignee-badge {
+  max-width: 100%;
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.assignee-badge .avatar-sm {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 10px;
 }
 
 .priority-badge {
